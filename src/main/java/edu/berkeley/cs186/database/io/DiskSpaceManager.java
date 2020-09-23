@@ -1,7 +1,7 @@
 package edu.berkeley.cs186.database.io;
 
 public interface DiskSpaceManager extends AutoCloseable {
-    short PAGE_SIZE = 4096; // size of a page in bytes
+    short PAGE_SIZE = 4096; // size of a page in bytes    4K
     long INVALID_PAGE_NUM = -1L; // a page number that is always invalid
 
     @Override
@@ -74,7 +74,7 @@ public interface DiskSpaceManager extends AutoCloseable {
     boolean pageAllocated(long page);
 
     /**
-     * Gets partition number from virtual page number
+     * Gets partition number from virtual page number        将虚拟的 page number 转化为 (partNum, pageNum) pair
      * @param page virtual page number
      * @return partition number
      */

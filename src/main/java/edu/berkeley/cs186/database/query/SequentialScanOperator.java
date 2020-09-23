@@ -16,14 +16,14 @@ class SequentialScanOperator extends QueryOperator {
      * Creates a new SequentialScanOperator that provides an iterator on all tuples in a table.
      *
      * NOTE: Sequential scans don't take a source operator because they must always be at the bottom
-     * of the DAG.
+     * of the DAG.    Sequential scans 是 DAG 的底部.
      *
      * @param transaction
      * @param tableName
      */
     SequentialScanOperator(TransactionContext transaction,
                            String tableName) {
-        this(OperatorType.SEQSCAN, transaction, tableName);
+        this(OperatorType.SEQSCAN, transaction, tableName);  // 顺序扫描
     }
 
     protected SequentialScanOperator(OperatorType type,
@@ -33,6 +33,7 @@ class SequentialScanOperator extends QueryOperator {
         this.transaction = transaction;
         this.tableName = tableName;
         this.setOutputSchema(this.computeSchema());
+        // System.out.println(this.getOutputSchema());
 
         this.stats = this.estimateStats();
         this.cost = this.estimateIOCost();

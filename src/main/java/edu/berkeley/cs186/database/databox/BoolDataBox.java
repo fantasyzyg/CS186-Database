@@ -51,7 +51,7 @@ public class BoolDataBox extends DataBox {
     public int compareTo(DataBox d) {
         if (!(d instanceof BoolDataBox)) {
             String err = String.format("Invalid comparison between %s and %s.",
-                                       toString(), d.toString());
+                    toString(), d.toString());
             throw new DataBoxException(err);
         }
         BoolDataBox b = (BoolDataBox) d;

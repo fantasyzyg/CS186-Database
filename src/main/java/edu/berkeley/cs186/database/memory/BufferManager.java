@@ -9,7 +9,7 @@ public interface BufferManager extends AutoCloseable {
     // We reserve 36 bytes on each page for bookkeeping for recovery
     // (used to store the pageLSN, and to ensure that a redo-only/undo-only log record can
     // fit on one page).
-    short RESERVED_SPACE = 36;
+    short RESERVED_SPACE = 36;         // 每一个page 留下36个字节备用
 
     // Effective page size available to users of buffer manager.
     short EFFECTIVE_PAGE_SIZE = DiskSpaceManager.PAGE_SIZE - RESERVED_SPACE;
@@ -31,7 +31,7 @@ public interface BufferManager extends AutoCloseable {
      * Fetches a new page, with a loaded and pinned buffer frame.
      *
      * @param parentContext parent lock context of the new page
-     * @param partNum       partition number for new page
+     * @param partNum       partition number for new page             还不是很明白page为何是分区的?
      * @param logPage       whether the page is for the log or not
      * @return the new page
      */
@@ -49,7 +49,7 @@ public interface BufferManager extends AutoCloseable {
     /**
      * Frees a partition - evicts all relevant pages from cache, and tells the disk space manager
      * that the partition is no longer needed. No pages in the partition may be pinned before this call,
-     * and cannot be used after this call.
+     * and cannot be used after this call.           一个partition代表了很多的pages
      *
      * @param partNum partition number to free
      */
@@ -57,11 +57,11 @@ public interface BufferManager extends AutoCloseable {
 
     /**
      * Fetches a buffer frame with data for the specified page. Reuses existing buffer frame
-     * if page already loaded in memory. Pins the buffer frame. Cannot be used outside the package.
-     *
-     * @param pageNum page number
-     * @param logPage whether the page is for the log or not
-     * @return buffer frame with specified page loaded
+     *      * if page already loaded in memory. Pins the buffer frame. Cannot be used outside the package.
+     *      *
+     *      * @param pageNum page number
+     *      * @param logPage whether the page is for the log or not
+     *      * @return buffer frame with specified page loaded
      */
     BufferFrame fetchPageFrame(long pageNum, boolean logPage);
 
@@ -82,7 +82,7 @@ public interface BufferManager extends AutoCloseable {
     void evict(long pageNum);
 
     /**
-     * Calls evict on every frame in sequence.
+     * Calls evict on every frame in sequence.           evict：驱逐，从缓存中驱逐出去
      */
     void evictAll();
 

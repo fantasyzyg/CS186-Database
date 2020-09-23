@@ -14,7 +14,7 @@ import java.util.*;
 public class SortOperator {
     private TransactionContext transaction;
     private String tableName;
-    private Comparator<Record> comparator;
+    private Comparator<Record> comparator;   // Record 比较器
     private Schema operatorSchema;
     private int numBuffers;
     private String sortedTableName = null;
@@ -25,7 +25,7 @@ public class SortOperator {
         this.tableName = tableName;
         this.comparator = comparator;
         this.operatorSchema = this.computeSchema();
-        this.numBuffers = this.transaction.getWorkMemSize();
+        this.numBuffers = this.transaction.getWorkMemSize();     // 获取 buffer
     }
 
     private Schema computeSchema() {
@@ -42,12 +42,14 @@ public class SortOperator {
     public interface Run extends Iterable<Record> {
         /**
          * Add a record to the run.
+         *
          * @param values set of values of the record to add to run
          */
         void addRecord(List<DataBox> values);
 
         /**
          * Add a list of records to the run.
+         *
          * @param records records to add to the run
          */
         void addRecords(List<Record> records);
@@ -57,6 +59,7 @@ public class SortOperator {
 
         /**
          * Table name of table backing the run.
+         *
          * @return table name
          */
         String tableName();
@@ -71,9 +74,17 @@ public class SortOperator {
      * size of the buffer, but it is done this way for ease.
      */
     public Run sortRun(Run run) {
-        // TODO(proj3_part1): implement
+        Iterator<Record> iterator = run.iterator();
+        List<Record> records = new ArrayList<>();
+        while (iterator.hasNext()) {
+            records.add(iterator.next());
+        }
 
-        return null;
+        records.sort(comparator);
+        Run sortedRun = createRun();
+        sortedRun.addRecords(records);
+        //createRunFromIterator(new RecordIterator(run.tableName(), records.iterator()));
+        return sortedRun;
     }
 
     /**
@@ -85,9 +96,32 @@ public class SortOperator {
      * sorting on currently unmerged from run i.
      */
     public Run mergeSortedRuns(List<Run> runs) {
-        // TODO(proj3_part1): implement
 
-        return null;
+        if (runs.size() == 1) {
+            return runs.get(0);
+        }
+
+        PriorityQueue<Pair<Record, Integer>> priorityQueue = new PriorityQueue<>(new RecordPairComparator());
+        List<Iterator<Record>> iterators = new ArrayList<>();
+        for (int i = 0; i < runs.size(); ++i) {
+            Iterator<Record> iterator = runs.get(i).iterator();
+            iterators.add(iterator);
+            priorityQueue.add(new Pair<>(iterator.next(), i));
+        }
+
+        // 采用归并排序的思想来吧
+        Run sortedRun = createRun();
+        while (!priorityQueue.isEmpty()) {
+            Pair<Record, Integer> pair = priorityQueue.poll();
+            Record record = pair.getFirst();
+            Integer index = pair.getSecond();
+            sortedRun.addRecord(record.getValues());
+            if (iterators.get(index).hasNext()) {
+                priorityQueue.add(new Pair<>(iterators.get(index).next(), index));
+            }
+        }
+
+        return sortedRun;
     }
 
     /**
@@ -98,20 +132,34 @@ public class SortOperator {
      * perfect multiple.
      */
     public List<Run> mergePass(List<Run> runs) {
-        // TODO(proj3_part1): implement
+        List<Run> mergeRun = new ArrayList<>();
+        for (int i = 0; i < runs.size(); i += numBuffers - 1) {
+            int toIndex = Math.min(i + numBuffers - 1, runs.size());
+            mergeRun.add(mergeSortedRuns(runs.subList(i, toIndex)));
+        }
 
-        return Collections.emptyList();
+        return mergeRun;
     }
 
     /**
      * Does an external merge sort on the table with name tableName
      * using numBuffers.
-     * Returns the name of the table that backs the final run.
+     * Returns the name of the table that backs the final run.     返回的是一个临时表的名称
      */
     public String sort() {
-        // TODO(proj3_part1): implement
+        List<Run> runs = new ArrayList<>();
+        BacktrackingIterator<Page> pageIterator = this.transaction.getPageIterator(this.tableName);
+        while (pageIterator.hasNext()) {
+            // 加载 numBuffers 个 page 进入 内存作为一个block，其实这些内存的数据就可以作为一个 run 了，不需要再调用 createRun() 创建一个 run 了，因为创建一个新的run的话，就是创建一个临时表了，设计的 IO 次数就是 2 + numBuffers 了
+            BacktrackingIterator<Record> blockIterator = this.transaction.getBlockIterator(this.tableName, pageIterator, numBuffers);
+            runs.add(sortRun(createRunFromIterator(blockIterator)));
+        }
 
-        return this.tableName; // TODO(proj3_part1): replace this!
+        while (runs.size() > 1) {
+            runs = mergePass(runs);
+        }
+
+        return runs.get(0).tableName();
     }
 
     public Iterator<Record> iterator() {
@@ -123,7 +171,8 @@ public class SortOperator {
 
     /**
      * Creates a new run for intermediate steps of sorting. The created
-     * run supports adding records.
+     * * run supports adding records.
+     *
      * @return a new, empty run
      */
     Run createRun() {
@@ -134,6 +183,7 @@ public class SortOperator {
      * Creates a run given a backtracking iterator of records. Record adding
      * is not supported, but creating this run will not incur any I/Os aside
      * from any I/Os incurred while reading from the given iterator.
+     *
      * @param records iterator of records
      * @return run backed by the iterator of records
      */
@@ -145,8 +195,9 @@ public class SortOperator {
         String tempTableName;
 
         IntermediateRun() {
+            // 建立一个临时表 temp table
             this.tempTableName = SortOperator.this.transaction.createTempTable(
-                                     SortOperator.this.operatorSchema);
+                    SortOperator.this.operatorSchema);
         }
 
         @Override

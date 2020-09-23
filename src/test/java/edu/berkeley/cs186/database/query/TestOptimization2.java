@@ -98,7 +98,7 @@ public class TestOptimization2 {
 
             // execute the query and get the output
             query.execute();
-            query.getFinalOperator();
+            System.out.println(query.getFinalOperator().toString());;
         }
     }
 }

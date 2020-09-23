@@ -8,10 +8,10 @@ import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
+import java.util.Iterator;
 
 import edu.berkeley.cs186.database.table.Schema;
 
-import edu.berkeley.cs186.database.table.Table;
 import edu.berkeley.cs186.database.table.Record;
 import edu.berkeley.cs186.database.databox.IntDataBox;
 import edu.berkeley.cs186.database.databox.StringDataBox;
@@ -25,9 +25,13 @@ import org.junit.rules.DisableOnDebug;
 import org.junit.rules.TestRule;
 import org.junit.rules.Timeout;
 
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+/**
+ *  数据库启动之初会创建两个表
+ *      1. information.schemas (partition 1)
+ *      2. information.indices (partition 2)
+ */
 @Category({Proj3Tests.class, Proj3Part2Tests.class})
 public class TestOptimizationJoins {
     private static final String TABLENAME = "T";
@@ -42,7 +46,7 @@ public class TestOptimizationJoins {
     // 10 second max per method tested.
     @Rule
     public TestRule globalTimeout = new DisableOnDebug(Timeout.millis((long) (
-                10000 * TimeoutScaling.factor)));
+            10000 * TimeoutScaling.factor)));
 
     @Before
     public void beforeEach() throws Exception {
@@ -51,7 +55,7 @@ public class TestOptimizationJoins {
         this.db = new Database(filename, 32);
         this.db.setWorkMem(5); // B=5
         this.db.waitSetupFinished();
-        try(Transaction t = this.db.beginTransaction()) {
+        try (Transaction t = this.db.beginTransaction()) {
             t.dropAllTables();
 
             Schema schema = TestUtils.createSchemaWithAllTypes();
@@ -59,6 +63,7 @@ public class TestOptimizationJoins {
             t.createTable(schema, TABLENAME);
 
             t.createTable(schema, TABLENAME + "I");
+
             t.createIndex(TABLENAME + "I", "int", false);
 
             t.createTable(TestUtils.createSchemaWithAllTypes("one_"), TABLENAME + "o1");
@@ -72,7 +77,19 @@ public class TestOptimizationJoins {
     @After
     public void afterEach() {
         this.db.waitAllTransactions();
-        try(Transaction t = this.db.beginTransaction()) {
+
+        /*
+         *  partition 1 --> information.tables
+         *  partition 2 --> information.indices
+         */
+//        System.out.println(db.tableLookup);
+//        System.out.println(db.indexInfoLookup);
+//        System.out.println(db.indexLookup);
+//        System.out.println(db.tableInfoLookup);
+//        System.out.println(db.indexInfoLookup);
+//        System.out.println(db.tableIndices);
+
+        try (Transaction t = this.db.beginTransaction()) {
             t.dropAllTables();
         }
         this.db.close();
@@ -91,7 +108,7 @@ public class TestOptimizationJoins {
     @Test
     @Category(PublicTests.class)
     public void testJoinTypeA() {
-        try(Transaction transaction = this.db.beginTransaction()) {
+        try (Transaction transaction = this.db.beginTransaction()) {
             for (int i = 0; i < 2000; ++i) {
                 Record r = createRecordWithAllTypes(false, i, "!", 0.0f);
                 transaction.insert(TABLENAME, r.getValues());
@@ -103,10 +120,13 @@ public class TestOptimizationJoins {
             QueryPlan query = transaction.query("T", "t1");
             query.join("T", "t2", "t1.int", "t2.int");
 
-            //query.select("int", PredicateOperator.EQUALS, new IntDataBox(10));
+            // query.select("int", PredicateOperator.EQUALS, new IntDataBox(10));
 
             // execute the query
-            query.execute();
+            Iterator<Record> iterator = query.execute();
+//            while (iterator.hasNext()) {
+//                System.out.println(iterator.next());;
+//            }
 
             QueryOperator finalOperator = query.getFinalOperator();
             assertTrue(finalOperator.toString().contains("BNLJ"));
@@ -116,7 +136,7 @@ public class TestOptimizationJoins {
     @Test
     @Category(PublicTests.class)
     public void testJoinTypeB() {
-        try(Transaction transaction = this.db.beginTransaction()) {
+        try (Transaction transaction = this.db.beginTransaction()) {
             for (int i = 0; i < 10; ++i) {
                 Record r = createRecordWithAllTypes(false, i, "!", 0.0f);
                 transaction.insert(TABLENAME + "I", r.getValues());
@@ -127,6 +147,8 @@ public class TestOptimizationJoins {
             // add a join and a select to the QueryPlan
             QueryPlan query = transaction.query("TI", "t1");
             query.join("TI", "t2", "t1.int", "t2.int");
+
+            // select Column 没有包含表名，包含表名应该会报错, bug?
             query.select("int", PredicateOperator.EQUALS, new IntDataBox(9));
 
             // execute the query
@@ -141,7 +163,7 @@ public class TestOptimizationJoins {
     @Test
     @Category(PublicTests.class)
     public void testJoinTypeC() {
-        try(Transaction transaction = db.beginTransaction()) {
+        try (Transaction transaction = db.beginTransaction()) {
             for (int i = 0; i < 2000; ++i) {
                 Record r = createRecordWithAllTypes(false, i, "!", 0.0f);
                 transaction.insert(TABLENAME + "I", r.getValues());
@@ -165,10 +187,48 @@ public class TestOptimizationJoins {
         }
     }
 
+
+    @Test
+    @Category(PublicTests.class)
+    public void testJoinTypeD() {
+        try (Transaction transaction = db.beginTransaction()) {
+            for (int i = 0; i < 2000; ++i) {
+                Record r = createRecordWithAllTypes(false, i, "!", 0.0f);
+                transaction.insert(TABLENAME + "I", r.getValues());
+            }
+
+            transaction.getTransactionContext().getTable(TABLENAME + "I").buildStatistics(10);
+
+            // add a join and a select to the QueryPlan
+            QueryPlan query = transaction.query("TI", "t1");
+            query.join("TI", "t2", "t1.int", "t2.int");
+            query.join("TI", "t3", "t1.int", "t3.int");
+            query.select("t1.int", PredicateOperator.EQUALS, new IntDataBox(9));
+            query.select("t2.int", PredicateOperator.EQUALS, new IntDataBox(9));
+            query.select("t3.float", PredicateOperator.EQUALS, new FloatDataBox(0));
+
+
+            /**
+             *  谓词下推：
+             *      先处理好index的，再处理不是index的，index的只是拿来读取数据的,比较多种情况下的读取效率，选择最优
+             */
+
+            // execute the query
+            Iterator<Record> iterator = query.execute();
+//            while (iterator.hasNext()) {
+//                System.out.println(iterator.next());
+//            }
+
+            QueryOperator finalOperator = query.getFinalOperator();
+            assertTrue(finalOperator.toString().contains("INDEXSCAN"));
+            assertTrue(finalOperator.toString().contains("SNLJ"));
+        }
+    }
+
     @Test
     @Category(PublicTests.class)
     public void testJoinOrderA() {
-        try(Transaction transaction = db.beginTransaction()) {
+        try (Transaction transaction = db.beginTransaction()) {
             for (int i = 0; i < 10; ++i) {
                 Record r = createRecordWithAllTypes(false, i, "!", 0.0f);
                 transaction.insert(TABLENAME + "o1", r.getValues());
@@ -206,7 +266,7 @@ public class TestOptimizationJoins {
     @Test
     @Category(PublicTests.class)
     public void testJoinOrderB() {
-        try(Transaction transaction = db.beginTransaction()) {
+        try (Transaction transaction = db.beginTransaction()) {
             for (int i = 0; i < 10; ++i) {
                 Record r = createRecordWithAllTypes(false, i, "!", 0.0f);
                 transaction.insert(TABLENAME + "o1", r.getValues());
@@ -233,6 +293,52 @@ public class TestOptimizationJoins {
             query.join("To2", "To1.one_int", "To2.two_int");
             query.join("To3", "To2.two_int", "To3.three_int");
             query.join("To4", "To1.one_string", "To4.four_string");
+
+            // execute the query
+            query.execute();
+
+            QueryOperator finalOperator = query.getFinalOperator();
+
+            //smallest to largest order
+            assertTrue(finalOperator.toString().contains("\t\t\ttable: To2"));
+            assertTrue(finalOperator.toString().contains("\t\t\ttable: To3"));
+            assertTrue(finalOperator.toString().contains("\t\ttable: To1"));
+            assertTrue(finalOperator.toString().contains("\ttable: To4"));
+        }
+    }
+
+    @Test
+    @Category(PublicTests.class)
+    public void testJoinOrderC() {
+        try (Transaction transaction = db.beginTransaction()) {
+            for (int i = 0; i < 10; ++i) {
+                Record r = createRecordWithAllTypes(false, i, "!", 0.0f);
+                transaction.insert(TABLENAME + "o1", r.getValues());
+            }
+
+            for (int i = 0; i < 100; ++i) {
+                Record r = createRecordWithAllTypes(false, i, "!", 0.0f);
+                transaction.insert(TABLENAME + "o2", r.getValues());
+            }
+
+            for (int i = 0; i < 2000; ++i) {
+                Record r = createRecordWithAllTypes(false, i, "!", 0.0f);
+                transaction.insert(TABLENAME + "o3", r.getValues());
+                transaction.insert(TABLENAME + "o4", r.getValues());
+            }
+
+            transaction.getTransactionContext().getTable(TABLENAME + "o1").buildStatistics(10);
+            transaction.getTransactionContext().getTable(TABLENAME + "o2").buildStatistics(10);
+            transaction.getTransactionContext().getTable(TABLENAME + "o3").buildStatistics(10);
+            transaction.getTransactionContext().getTable(TABLENAME + "o4").buildStatistics(10);
+
+            // add a join and a select to the QueryPlan
+            QueryPlan query = transaction.query("To1");
+            query.join("To2", "To1.one_int", "To2.two_int");
+            query.join("To3", "To2.two_int", "To3.three_int");
+            query.join("To4", "To1.one_string", "To4.four_string");
+
+            query.select("one_int", PredicateOperator.EQUALS, new IntDataBox(9));
 
             // execute the query
             query.execute();

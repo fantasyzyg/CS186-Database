@@ -1,12 +1,15 @@
 package edu.berkeley.cs186.database.common;
 
+/**
+ *    谓语操作符，如何使用一个枚举类呢?
+ */
 public enum PredicateOperator {
-    EQUALS,
-    NOT_EQUALS,
-    LESS_THAN,
-    LESS_THAN_EQUALS,
-    GREATER_THAN,
-    GREATER_THAN_EQUALS;
+    EQUALS,     // 相等
+    NOT_EQUALS,    // 不相等
+    LESS_THAN,        // 小于
+    LESS_THAN_EQUALS,      // 小于等于
+    GREATER_THAN,        // 大于
+    GREATER_THAN_EQUALS;      // 大于等于
 
     public <T extends Comparable<T>> boolean evaluate(T a, T b) {
         switch (this) {

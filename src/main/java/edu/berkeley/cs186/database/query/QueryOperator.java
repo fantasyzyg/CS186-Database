@@ -8,6 +8,9 @@ import edu.berkeley.cs186.database.table.Record;
 import edu.berkeley.cs186.database.table.Schema;
 import edu.berkeley.cs186.database.table.stats.TableStats;
 
+/**
+ * 查询算子，每一个QueryOperator都会输出一个Schema
+ */
 public abstract class QueryOperator implements Iterable<Record> {
     private QueryOperator source;
     private QueryOperator destination;
@@ -16,12 +19,12 @@ public abstract class QueryOperator implements Iterable<Record> {
     protected int cost;
 
     public enum OperatorType {
-        JOIN,
-        PROJECT,
-        SELECT,
-        GROUPBY,
-        SEQSCAN,
-        INDEXSCAN,
+        JOIN,    // 连接
+        PROJECT,   // 投影
+        SELECT,     // 选择
+        GROUPBY,      // 分组
+        SEQSCAN,      // 顺序扫描
+        INDEXSCAN,     // 索引扫描
         MATERIALIZE,
     }
 
@@ -90,6 +93,7 @@ public abstract class QueryOperator implements Iterable<Record> {
         return this.operatorSchema;
     }
 
+    // 输出的表格式 Schema
     void setOutputSchema(Schema schema) {
         this.operatorSchema = schema;
     }
@@ -106,7 +110,7 @@ public abstract class QueryOperator implements Iterable<Record> {
      * Utility method that checks to see if a column is found in a schema using dot notation.
      *
      * @param fromSchema the schema to search in
-     * @param specified the column name to search for
+     * @param specified  the column name to search for
      * @return
      */
     public boolean checkColumnNameEquality(String fromSchema, String specified) {
@@ -138,6 +142,7 @@ public abstract class QueryOperator implements Iterable<Record> {
         for (String sourceColumnName : schemaColumnNames) {
             if (this.checkColumnNameEquality(sourceColumnName, columnName)) {
                 if (found) {
+                    // 出现有歧义的表字段
                     throw new QueryPlanException("Column " + columnName + " specified twice without disambiguation.");
                 }
                 found = true;
@@ -163,6 +168,7 @@ public abstract class QueryOperator implements Iterable<Record> {
     }
 
     /**
+     * 估计执行此查询操作符的结果的表统计信息。
      * Estimates the table statistics for the result of executing this query operator.
      *
      * @return estimated TableStats
@@ -170,6 +176,7 @@ public abstract class QueryOperator implements Iterable<Record> {
     protected abstract TableStats estimateStats();
 
     /**
+     * 估计执行此查询操作符的IO成本。
      * Estimates the IO cost of executing this query operator.
      *
      * @return estimated number of IO's performed

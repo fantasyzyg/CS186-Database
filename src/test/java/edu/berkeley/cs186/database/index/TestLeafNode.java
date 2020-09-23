@@ -307,6 +307,7 @@ public class TestLeafNode {
             keys.add(new IntDataBox(i));
             rids.add(new RecordId(i, (short) i));
 
+            // 构造一个LeftNode的时候就会sync一次的了
             leaf = new LeafNode(metadata, bufferManager, keys, rids, Optional.of(42L), treeContext);
 
             pageNum = leaf.getPage().getPageNum();

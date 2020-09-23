@@ -2,7 +2,6 @@ package edu.berkeley.cs186.database.query;
 
 import edu.berkeley.cs186.database.*;
 import edu.berkeley.cs186.database.categories.*;
-import edu.berkeley.cs186.database.common.Pair;
 import edu.berkeley.cs186.database.concurrency.DummyLockContext;
 import edu.berkeley.cs186.database.io.DiskSpaceManager;
 import edu.berkeley.cs186.database.memory.Page;
@@ -29,15 +28,15 @@ public class TestSortOperator {
     private Map<Long, Page> pinnedPages = new HashMap<>();
 
     public static long FIRST_ACCESS_IOS = 1; // 1 I/O on first access to a table (after evictAll)
-    public static long NEW_TABLE_IOS = 2; // 2 I/Os to create a new table
+    public static long NEW_TABLE_IOS = 2; // 2 I/Os to create a new table，首先在 information_schema.tables 中创建一条记录，需要一次 IO，然后为 new table 创建一个 PageDirectory，耗费一次 IO
 
     @Rule
-    public TemporaryFolder tempFolder = new TemporaryFolder();
+    public TemporaryFolder tempFolder = new TemporaryFolder();       // 创建临时文件
 
     // 2 second max per method tested.
     @Rule
     public TestRule globalTimeout = new DisableOnDebug(Timeout.millis((long) (
-                5000 * TimeoutScaling.factor)));
+            5000 * TimeoutScaling.factor)));
 
     @Ignore
     public static class SortRecordComparator implements Comparator<Record> {
@@ -46,17 +45,19 @@ public class TestSortOperator {
         private SortRecordComparator(int columnIndex) {
             this.columnIndex = columnIndex;
         }
+
         @Override
         public int compare(Record o1, Record o2) {
             return o1.getValues().get(this.columnIndex).compareTo(
-                       o2.getValues().get(this.columnIndex));
+                    o2.getValues().get(this.columnIndex));
         }
     }
 
     @Before
     public void setup() throws IOException {
         File tempDir = tempFolder.newFolder("sortTest");
-        d = new Database(tempDir.getAbsolutePath(), 256);
+        System.out.println(tempDir.getAbsolutePath());
+        d = new Database(tempDir.getAbsolutePath(), 256);    // 256 个缓存page页 cache
         d.setWorkMem(3); // B=3
         d.waitAllTransactions();
     }
@@ -75,6 +76,7 @@ public class TestSortOperator {
         numIOs = d.getBufferManager().getNumIOs();
     }
 
+    // 检查这一个过程使用了多少IO
     private void checkIOs(String message, long minIOs, long maxIOs) {
         if (message == null) {
             message = "";
@@ -86,7 +88,7 @@ public class TestSortOperator {
         long IOs = newIOs - numIOs;
 
         assertTrue(IOs + " I/Os not between " + minIOs + " and " + maxIOs + message,
-                   minIOs <= IOs && IOs <= maxIOs);
+                minIOs <= IOs && IOs <= maxIOs);
         numIOs = newIOs;
     }
 
@@ -97,6 +99,7 @@ public class TestSortOperator {
     private void checkIOs(long minIOs, long maxIOs) {
         checkIOs(null, minIOs, maxIOs);
     }
+
     private void checkIOs(long numIOs) {
         checkIOs(null, numIOs, numIOs);
     }
@@ -127,7 +130,7 @@ public class TestSortOperator {
     @Test
     @Category(PublicTests.class)
     public void testSortRun() {
-        try(Transaction transaction = d.beginTransaction()) {
+        try (Transaction transaction = d.beginTransaction()) {
             transaction.createTable(TestUtils.createSchemaWithAllTypes(), "table");
             List<Record> records = new ArrayList<>();
             List<Record> recordsToShuffle = new ArrayList<>();
@@ -142,7 +145,7 @@ public class TestSortOperator {
             startCountIOs();
 
             SortOperator s = new SortOperator(transaction.getTransactionContext(), "table",
-                                              new SortRecordComparator(1));
+                    new SortRecordComparator(1));
             checkIOs(0);
 
             SortOperator.Run r = s.createRun();
@@ -169,7 +172,7 @@ public class TestSortOperator {
     @Test
     @Category(PublicTests.class)
     public void testMergeSortedRuns() {
-        try(Transaction transaction = d.beginTransaction()) {
+        try (Transaction transaction = d.beginTransaction()) {
             transaction.createTable(TestUtils.createSchemaWithAllTypes(), "table");
             List<Record> records = new ArrayList<>();
 
@@ -177,7 +180,7 @@ public class TestSortOperator {
             startCountIOs();
 
             SortOperator s = new SortOperator(transaction.getTransactionContext(), "table",
-                                              new SortRecordComparator(1));
+                    new SortRecordComparator(1));
             checkIOs(0);
             SortOperator.Run r1 = s.createRun();
             SortOperator.Run r2 = s.createRun();
@@ -216,7 +219,7 @@ public class TestSortOperator {
     @Test
     @Category(PublicTests.class)
     public void testMergePass() {
-        try(Transaction transaction = d.beginTransaction()) {
+        try (Transaction transaction = d.beginTransaction()) {
             transaction.createTable(TestUtils.createSchemaWithAllTypes(), "table");
             List<Record> records1 = new ArrayList<>();
             List<Record> records2 = new ArrayList<>();
@@ -225,7 +228,7 @@ public class TestSortOperator {
             startCountIOs();
 
             SortOperator s = new SortOperator(transaction.getTransactionContext(), "table",
-                                              new SortRecordComparator(1));
+                    new SortRecordComparator(1));
             checkIOs(0);
 
             SortOperator.Run r1 = s.createRun();
@@ -286,7 +289,7 @@ public class TestSortOperator {
     @Test
     @Category(PublicTests.class)
     public void testSortNoChange() {
-        try(Transaction transaction = d.beginTransaction()) {
+        try (Transaction transaction = d.beginTransaction()) {
             transaction.createTable(TestUtils.createSchemaWithAllTypes(), "table");
             Record[] records = new Record[400 * 3];
             for (int i = 0; i < 400 * 3; i++) {
@@ -299,7 +302,7 @@ public class TestSortOperator {
             startCountIOs();
 
             SortOperator s = new SortOperator(transaction.getTransactionContext(), "table",
-                                              new SortRecordComparator(1));
+                    new SortRecordComparator(1));
             checkIOs(0);
 
             String sortedTableName = s.sort();
@@ -320,7 +323,7 @@ public class TestSortOperator {
     @Test
     @Category(PublicTests.class)
     public void testSortBackwards() {
-        try(Transaction transaction = d.beginTransaction()) {
+        try (Transaction transaction = d.beginTransaction()) {
             transaction.createTable(TestUtils.createSchemaWithAllTypes(), "table");
             Record[] records = new Record[400 * 3];
             for (int i = 400 * 3; i > 0; i--) {
@@ -333,7 +336,7 @@ public class TestSortOperator {
             startCountIOs();
 
             SortOperator s = new SortOperator(transaction.getTransactionContext(), "table",
-                                              new SortRecordComparator(1));
+                    new SortRecordComparator(1));
             checkIOs(0);
 
             String sortedTableName = s.sort();
@@ -354,7 +357,7 @@ public class TestSortOperator {
     @Test
     @Category(PublicTests.class)
     public void testSortRandomOrder() {
-        try(Transaction transaction = d.beginTransaction()) {
+        try (Transaction transaction = d.beginTransaction()) {
             transaction.createTable(TestUtils.createSchemaWithAllTypes(), "table");
             List<Record> records = new ArrayList<>();
             List<Record> recordsToShuffle = new ArrayList<>();
@@ -372,7 +375,7 @@ public class TestSortOperator {
             startCountIOs();
 
             SortOperator s = new SortOperator(transaction.getTransactionContext(), "table",
-                                              new SortRecordComparator(1));
+                    new SortRecordComparator(1));
             checkIOs(0);
 
             String sortedTableName = s.sort();

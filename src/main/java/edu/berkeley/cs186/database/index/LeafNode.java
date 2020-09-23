@@ -19,21 +19,21 @@ import edu.berkeley.cs186.database.table.RecordId;
  * persisted on a single page; see toBytes and fromBytes for details on how a
  * leaf is serialized. For example, here is an illustration of two order 2
  * leafs connected together:
- *
- *   leaf 1 (stored on some page)          leaf 2 (stored on some other page)
- *   +-------+-------+-------+-------+     +-------+-------+-------+-------+
- *   | k0:r0 | k1:r1 | k2:r2 |       | --> | k3:r3 | k4:r4 |       |       |
- *   +-------+-------+-------+-------+     +-------+-------+-------+-------+
+ * <p>
+ * leaf 1 (stored on some page)          leaf 2 (stored on some other page)
+ * +-------+-------+-------+-------+     +-------+-------+-------+-------+
+ * | k0:r0 | k1:r1 | k2:r2 |       | --> | k3:r3 | k4:r4 |       |       |
+ * +-------+-------+-------+-------+     +-------+-------+-------+-------+
  */
 class LeafNode extends BPlusNode {
     // Metadata about the B+ tree that this node belongs to.
-    private BPlusTreeMetadata metadata;
+    private BPlusTreeMetadata metadata;    // B+树的元信息
 
     // Buffer manager
-    private BufferManager bufferManager;
+    private BufferManager bufferManager;          // buffer 管理器
 
     // Lock context of the B+ tree
-    private LockContext treeContext;
+    private LockContext treeContext;         // B+ tree 锁上下文对象
 
     // The page on which this leaf is serialized.
     private Page page;
@@ -106,14 +106,15 @@ class LeafNode extends BPlusNode {
     private Optional<Long> rightSibling;
 
     // Constructors //////////////////////////////////////////////////////////////
+
     /**
      * Construct a brand new leaf node.
      */
     LeafNode(BPlusTreeMetadata metadata, BufferManager bufferManager, List<DataBox> keys,
              List<RecordId> rids, Optional<Long> rightSibling, LockContext treeContext) {
         this(metadata, bufferManager, bufferManager.fetchNewPage(treeContext, metadata.getPartNum(), false),
-             keys, rids,
-             rightSibling, treeContext);
+                keys, rids,
+                rightSibling, treeContext);
     }
 
     /**
@@ -122,7 +123,7 @@ class LeafNode extends BPlusNode {
     private LeafNode(BPlusTreeMetadata metadata, BufferManager bufferManager, Page page,
                      List<DataBox> keys,
                      List<RecordId> rids, Optional<Long> rightSibling, LockContext treeContext) {
-        assert(keys.size() == rids.size());
+        assert (keys.size() == rids.size());
 
         this.metadata = metadata;
         this.bufferManager = bufferManager;
@@ -132,54 +133,114 @@ class LeafNode extends BPlusNode {
         this.rids = new ArrayList<>(rids);
         this.rightSibling = rightSibling;
 
-        sync();
+        sync();         // 建立的时候就会同步一次了。
         page.unpin();
     }
 
     // Core API //////////////////////////////////////////////////////////////////
     // See BPlusNode.get.
     @Override
-    public LeafNode get(DataBox key) {
-        // TODO(proj2): implement
-
-        return null;
+    public LeafNode get(DataBox key) {   // 即使不包含该key也是需要返回本身
+        return this;
     }
 
     // See BPlusNode.getLeftmostLeaf.
     @Override
     public LeafNode getLeftmostLeaf() {
-        // TODO(proj2): implement
-
-        return null;
+        return this;
     }
 
     // See BPlusNode.put.
     @Override
     public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid) {
-        // TODO(proj2): implement
+        if (keys.contains(key)) {
+            throw new BPlusTreeException("A duplicate key is inserted!");
+        }
 
-        return Optional.empty();
+        int index = InnerNode.numLessThanEqual(key, keys);
+        keys.add(index, key);
+        rids.add(index, rid);
+        if (keys.size() <= metadata.getOrder() * 2) {
+            sync();   // 先刷新一遍回到磁盘
+            return Optional.empty();
+        }
+
+        // 否则进行裂变
+        List<DataBox> newKeys = new ArrayList<>();
+        List<RecordId> newRids = new ArrayList<>();
+        int d = metadata.getOrder();
+        while (keys.size() > d) {
+            newKeys.add(keys.remove(d));
+            newRids.add(rids.remove(d));
+        }
+
+        LeafNode rightNode = new LeafNode(metadata, bufferManager, newKeys, newRids, rightSibling, treeContext);
+        long rightPageNum = rightNode.getPage().getPageNum();
+        this.rightSibling = Optional.of(rightPageNum);
+        sync();    // 写会磁盘一遍数据,但是为什么rightNode不写入一次呢? 因为rightNode在构建的时候就已经同步了一次
+
+        return Optional.of(new Pair<>(newKeys.get(0), rightPageNum));
     }
 
-    // See BPlusNode.bulkLoad.
+    // See BPlusNode.bulkLoad.   这是在 LeafNode 已经有数据的基础之下进行的,不过有一个疑问就是 iterator 里面的数据是排序好的吗?
     @Override
     public Optional<Pair<DataBox, Long>> bulkLoad(Iterator<Pair<DataBox, RecordId>> data,
-            float fillFactor) {
+                                                  float fillFactor) {
         // TODO(proj2): implement
 
-        return Optional.empty();
+        int limitNumNode = (int) Math.ceil(metadata.getOrder() * 2 * fillFactor);
+        // 最多只可以达到 limitNumNode 个节点
+        while (data.hasNext() && keys.size() < limitNumNode) {
+            Pair<DataBox, RecordId> nextNode = data.next();
+            DataBox key = nextNode.getFirst();
+            RecordId recordId = nextNode.getSecond();
+
+            if (keys.contains(key)) {
+                throw new BPlusTreeException("A duplicate key is inserted!");
+            }
+
+            int index = InnerNode.numLessThanEqual(key, keys);
+            keys.add(index, key);
+            rids.add(index, recordId);
+        }
+
+        Optional<Pair<DataBox, Long>> pair = Optional.empty();
+        // 构造右节点
+        if (keys.size() == limitNumNode && data.hasNext()) {
+            Pair<DataBox, RecordId> next = data.next();
+            List<DataBox> newKeys = new ArrayList<>();
+            List<RecordId> newRids = new ArrayList<>();
+            newKeys.add(next.getFirst());
+            newRids.add(next.getSecond());
+
+            LeafNode newRightLeafNode =
+                    new LeafNode(metadata, bufferManager, newKeys, newRids, rightSibling, treeContext);
+            this.rightSibling = Optional.of(newRightLeafNode.getPage().getPageNum());
+            pair = Optional.of(new Pair<>(next.getFirst(), rightSibling.get()));
+        }
+
+        sync();
+        return pair;
     }
 
     // See BPlusNode.remove.
     @Override
     public void remove(DataBox key) {
         // TODO(proj2): implement
+        int index = keys.indexOf(key);
+        if (index != -1) {
+            keys.remove(index);
+            rids.remove(index);
 
-        return;
+            sync();
+        }
     }
 
     // Iterators /////////////////////////////////////////////////////////////////
-    /** Return the record id associated with `key`. */
+
+    /**
+     * Return the record id associated with `key`.
+     */
     Optional<RecordId> getKey(DataBox key) {
         int index = keys.indexOf(key);
         return index == -1 ? Optional.empty() : Optional.of(rids.get(index));
@@ -209,7 +270,9 @@ class LeafNode extends BPlusNode {
         return page;
     }
 
-    /** Returns the right sibling of this leaf, if it has one. */
+    /**
+     * Returns the right sibling of this leaf, if it has one.
+     */
     Optional<LeafNode> getRightSibling() {
         if (!rightSibling.isPresent()) {
             return Optional.empty();
@@ -219,14 +282,16 @@ class LeafNode extends BPlusNode {
         return Optional.of(LeafNode.fromBytes(metadata, bufferManager, treeContext, pageNum));
     }
 
-    /** Serializes this leaf to its page. */
+    /**
+     * Serializes this leaf to its page.
+     */
     private void sync() {
         page.pin();
         try {
             Buffer b = page.getBuffer();
-            byte[] newBytes = toBytes();
+            byte[] newBytes = toBytes();    // 将内存中的LeafNode序列化为byte数组
             byte[] bytes = new byte[newBytes.length];
-            b.get(bytes);
+            b.get(bytes);     // 这里为什么是将旧的page放到和新的字节数据一样长度的字节数组里面呢?
             if (!Arrays.equals(bytes, newBytes)) {
                 page.getBuffer().put(toBytes());
             }
@@ -282,7 +347,7 @@ class LeafNode extends BPlusNode {
     @Override
     public String toString() {
         return String.format("LeafNode(pageNum=%s, keys=%s, rids=%s)",
-                             page.getPageNum(), keys, rids);
+                page.getPageNum(), keys, rids);
     }
 
     @Override
@@ -299,8 +364,8 @@ class LeafNode extends BPlusNode {
     /**
      * Given a leaf with page number 1 and three (key, rid) pairs (0, (0, 0)),
      * (1, (1, 1)), and (2, (2, 2)), the corresponding dot fragment is:
-     *
-     *   node1[label = "{0: (0 0)|1: (1 1)|2: (2 2)}"];
+     * <p>
+     * node1[label = "{0: (0 0)|1: (1 1)|2: (2 2)}"];
      */
     @Override
     public String toDot() {
@@ -313,7 +378,7 @@ class LeafNode extends BPlusNode {
         return String.format("  node%d[label = \"{%s}\"];", pageNum, s);
     }
 
-    // Serialization /////////////////////////////////////////////////////////////
+    // Serialization ///////////////////////////////////////////////////////////// 序列化
     @Override
     public byte[] toBytes() {
         // When we serialize a leaf node, we write:
@@ -335,11 +400,11 @@ class LeafNode extends BPlusNode {
         //     a               b                   c                         d
         //
         // represent a leaf node with sibling on page 4 and a single (key, rid)
-        // pair with key 3 and page id (3, 1).
+        // pair with key 3 and page id (3, 1).   recordId 里面包含 (pageId, PageIndex)
 
         // All sizes are in bytes.
         int isLeafSize = 1;
-        int siblingSize = Long.BYTES;
+        int siblingSize = Long.BYTES;   // next page address.
         int lenSize = Integer.BYTES;
         int keySize = metadata.getKeySchema().getSizeInBytes();
         int ridSize = RecordId.getSizeInBytes();
@@ -362,9 +427,21 @@ class LeafNode extends BPlusNode {
      */
     public static LeafNode fromBytes(BPlusTreeMetadata metadata, BufferManager bufferManager,
                                      LockContext treeContext, long pageNum) {
-        // TODO(proj2): implement
+        Page page = bufferManager.fetchPage(treeContext, pageNum, false);
+        Buffer buffer = page.getBuffer();
+        buffer.get();   // 第一个byte表明是哪种类型的节点
+        long siblingSize = buffer.getLong();    // 右边的 LeafNode
+        int lenSize = buffer.getInt();
 
-        return null;
+        List<DataBox> keys = new ArrayList<>();  // keys
+        List<RecordId> rids = new ArrayList<>();   // RecordIds
+        Type keyType = metadata.getKeySchema();
+        for (int i = 0; i < lenSize; ++i) {
+            keys.add(DataBox.fromBytes(buffer, keyType));
+            rids.add(RecordId.fromBytes(buffer));
+        }
+
+        return new LeafNode(metadata, bufferManager, page, keys, rids, siblingSize == -1 ? Optional.empty() : Optional.of(siblingSize), treeContext);
     }
 
     // Builtins //////////////////////////////////////////////////////////////////
@@ -378,9 +455,9 @@ class LeafNode extends BPlusNode {
         }
         LeafNode n = (LeafNode) o;
         return page.getPageNum() == n.page.getPageNum() &&
-               keys.equals(n.keys) &&
-               rids.equals(n.rids) &&
-               rightSibling.equals(n.rightSibling);
+                keys.equals(n.keys) &&
+                rids.equals(n.rids) &&
+                rightSibling.equals(n.rightSibling);
     }
 
     @Override

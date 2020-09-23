@@ -14,15 +14,15 @@ public class TestUtils {
     public static Schema createSchemaWithAllTypes() {
         List<String> names = Arrays.asList("bool", "int", "string", "float");
         List<Type> types = Arrays.asList(Type.boolType(), Type.intType(),
-                                         Type.stringType(1), Type.floatType());
+                Type.stringType(1), Type.floatType());
         return new Schema(names, types);
     }
 
     public static Schema createSchemaWithAllTypes(String prefix) {
         List<String> names = Arrays.asList(prefix + "bool", prefix + "int", prefix + "string",
-                                           prefix + "float");
+                prefix + "float");
         List<Type> types = Arrays.asList(Type.boolType(), Type.intType(),
-                                         Type.stringType(1), Type.floatType());
+                Type.stringType(1), Type.floatType());
         return new Schema(names, types);
     }
 
@@ -63,7 +63,7 @@ public class TestUtils {
     public static Schema createSchemaOfIntAndString(int len) {
         List<String> names = Arrays.asList("int", "string");
         List<Type> types = Arrays.asList(Type.intType(),
-                                         Type.stringType(len));
+                Type.stringType(len));
         return new Schema(names, types);
     }
 

@@ -16,10 +16,9 @@ class IndexScanOperator extends QueryOperator {
     private TransactionContext transaction;
     private String tableName;
     private String columnName;
-    private PredicateOperator predicate;
+    private PredicateOperator predicate;        // 谓语 Operator
     private DataBox value;
-
-    private int columnIndex;
+    private int columnIndex;   // 索引字段 index
 
     /**
      * An index scan operator.
@@ -92,11 +91,12 @@ class IndexScanOperator extends QueryOperator {
 
     /**
      * Estimates the IO cost of executing this query operator.
+     *  有一个计算的算法在里面去评估一次index索引取树耗费的IO
      * @return estimate IO cost
      */
     @Override
     public int estimateIOCost() {
-        int height = transaction.getTreeHeight(tableName, columnName);
+        int height = transaction.getTreeHeight(tableName, columnName);  // return height of B+ tree index on tableName.columnName
         int order = transaction.getTreeOrder(tableName, columnName);
         TableStats tableStats = transaction.getStats(tableName);
 
@@ -104,6 +104,7 @@ class IndexScanOperator extends QueryOperator {
                     value).getCount();
         // 2 * order entries/leaf node, but leaf nodes are 50-100% full; we use a fill factor of
         // 75% as a rough estimate
+        // 粗略计算得到结果，B+ tree 的树高 + 访问叶子节点个数 + 访问record数量 ，这是对于 unclustered 的情况
         return (int) (height + Math.ceil(count / (1.5 * order)) + count);
     }
 

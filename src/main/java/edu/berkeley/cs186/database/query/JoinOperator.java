@@ -35,9 +35,9 @@ abstract class JoinOperator extends QueryOperator {
      * Create a join operator that pulls tuples from leftSource and rightSource. Returns tuples for which
      * leftColumnName and rightColumnName are equal.
      *
-     * @param leftSource the left source operator
-     * @param rightSource the right source operator
-     * @param leftColumnName the column to join on from leftSource
+     * @param leftSource      the left source operator
+     * @param rightSource     the right source operator
+     * @param leftColumnName  the column to join on from leftSource
      * @param rightColumnName the column to join on from rightSource
      */
     JoinOperator(QueryOperator leftSource,
@@ -67,7 +67,7 @@ abstract class JoinOperator extends QueryOperator {
     @Override
     public QueryOperator getSource() {
         throw new QueryPlanException("There is no single source for join operators. Please use " +
-                                     "getRightSource and getLeftSource and the corresponding set methods.");
+                "getRightSource and getLeftSource and the corresponding set methods.");
     }
 
     QueryOperator getLeftSource() {
@@ -80,31 +80,34 @@ abstract class JoinOperator extends QueryOperator {
 
     @Override
     public Schema computeSchema() {
+        // 左右其实都是一个表，然后会有对应的 Schema
         Schema leftSchema = this.leftSource.getOutputSchema();
         Schema rightSchema = this.rightSource.getOutputSchema();
         List<String> leftSchemaNames = new ArrayList<>(leftSchema.getFieldNames());
         List<String> rightSchemaNames = new ArrayList<>(rightSchema.getFieldNames());
         this.leftColumnName = this.checkSchemaForColumn(leftSchema, this.leftColumnName);
-        this.leftColumnIndex = leftSchemaNames.indexOf(leftColumnName);
+        this.leftColumnIndex = leftSchemaNames.indexOf(leftColumnName);   // 字段在表中的位置
         this.rightColumnName = this.checkSchemaForColumn(rightSchema, this.rightColumnName);
         this.rightColumnIndex = rightSchemaNames.indexOf(rightColumnName);
         List<Type> leftSchemaTypes = new ArrayList<>(leftSchema.getFieldTypes());
         List<Type> rightSchemaTypes = new ArrayList<>(rightSchema.getFieldTypes());
+        // 需要join对应的字段的类型 type 是一样的
         if (!leftSchemaTypes.get(this.leftColumnIndex).getClass().equals(rightSchemaTypes.get(
-                    this.rightColumnIndex).getClass())) {
+                this.rightColumnIndex).getClass())) {
             throw new QueryPlanException("Mismatched types of columns " + leftColumnName + " and "
-                                         + rightColumnName + ".");
+                    + rightColumnName + ".");
         }
         leftSchemaNames.addAll(rightSchemaNames);
         leftSchemaTypes.addAll(rightSchemaTypes);
+        // 全部都汇总一起，左表和右表的所有表字段信息
         return new Schema(leftSchemaNames, leftSchemaTypes);
     }
 
     @Override
     public String str() {
         return "type: " + this.joinType +
-               "\nleftColumn: " + this.leftColumnName +
-               "\nrightColumn: " + this.rightColumnName;
+                "\nleftColumn: " + this.leftColumnName +
+                "\nrightColumn: " + this.rightColumnName;
     }
 
     @Override
@@ -133,8 +136,8 @@ abstract class JoinOperator extends QueryOperator {
         TableStats rightStats = this.rightSource.getStats();
 
         return leftStats.copyWithJoin(this.leftColumnIndex,
-                                      rightStats,
-                                      this.rightColumnIndex);
+                rightStats,
+                this.rightColumnIndex);
     }
 
     @Override
@@ -185,7 +188,7 @@ abstract class JoinOperator extends QueryOperator {
     }
 
     public BacktrackingIterator<Record> getBlockIterator(String tableName, Iterator<Page> block,
-            int maxPages) {
+                                                         int maxPages) {
         return this.transaction.getBlockIterator(tableName, block, maxPages);
     }
 
@@ -219,7 +222,7 @@ abstract class JoinOperator extends QueryOperator {
                 this.leftTableName = ((SequentialScanOperator) JoinOperator.this.getLeftSource()).getTableName();
             } else {
                 this.leftTableName = JoinOperator.this.createTempTable(
-                                         JoinOperator.this.getLeftSource().getOutputSchema());
+                        JoinOperator.this.getLeftSource().getOutputSchema());
                 Iterator<Record> leftIter = JoinOperator.this.getLeftSource().iterator();
                 while (leftIter.hasNext()) {
                     JoinOperator.this.addRecord(this.leftTableName, leftIter.next().getValues());
@@ -229,7 +232,7 @@ abstract class JoinOperator extends QueryOperator {
                 this.rightTableName = ((SequentialScanOperator) JoinOperator.this.getRightSource()).getTableName();
             } else {
                 this.rightTableName = JoinOperator.this.createTempTable(
-                                          JoinOperator.this.getRightSource().getOutputSchema());
+                        JoinOperator.this.getRightSource().getOutputSchema());
                 Iterator<Record> rightIter = JoinOperator.this.getRightSource().iterator();
                 while (rightIter.hasNext()) {
                     JoinOperator.this.addRecord(this.rightTableName, rightIter.next().getValues());

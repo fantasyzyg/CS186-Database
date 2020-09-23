@@ -118,8 +118,8 @@ public class NaiveHashJoin {
      * @return A list of joined records
      */
     public List<Record> run() {
-        ArrayList<Record> joinedRecords = new ArrayList<Record>();
-        NaiveHashPartition partitions[] = createPartitions();
+        ArrayList<Record> joinedRecords = new ArrayList<>();
+        NaiveHashPartition[] partitions = createPartitions();
         this.partition(partitions, this.leftRelationIterator);
         for (NaiveHashPartition partition : partitions) {
             joinedRecords.addAll(buildAndProbe(partition, this.rightRelationIterator));
@@ -135,7 +135,7 @@ public class NaiveHashJoin {
      */
     private NaiveHashPartition[] createPartitions() {
         int usableBuffers = this.numBuffers - 1;
-        NaiveHashPartition partitions[] = new NaiveHashPartition[usableBuffers];
+        NaiveHashPartition[] partitions = new NaiveHashPartition[usableBuffers];
         for (int i = 0; i < usableBuffers; i++) {
             partitions[i] = createPartition();
         }

@@ -16,28 +16,32 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * An implementation of a disk space manager with virtual page translation, and
  * two levels of header pages, allowing for (with page size of 4K) 256G worth of data per partition:
- *
- *                                           [master page]
- *                  /                              |                               \
- *           [header page]                                                    [header page]
- *     /    |     |     |     \                   ...                   /    |     |     |     \
+ * <p>
+ * [master page]
+ * /                              |                               \
+ * [header page]                                                    [header page]
+ * /    |     |     |     \                   ...                   /    |     |     |     \
  * [data] [data] ... [data] [data]                                   [data] [data] ... [data] [data]
- *
+ * <p>
  * Each header page stores a bitmap, indicating whether each of the data pages has been allocated,
- * and manages 32K pages. The master page stores 16-bit integers for each of the header pages indicating
+ * and manages 32K( 4K * 8 ) pages. The master page stores 16-bit integers for each of the header pages indicating
  * the number of data pages that have been allocated under the header page (managing 2K header pages).
- * A single partition may therefore have a maximum of 64M data pages.
- *
+ * A single partition may therefore have a maximum of 64M data pages.  (2K * 32K = 64M)
+ * <p>
+ * Master page存储header page页的磁盘地址，一个header page占用空间为2个字节，所以可以存储 2K 个entity
+ * Header page存储的是一组bitmap，header page下面存储的是data page，所以可以存储 32K*4K = 128M
+ * <p>
  * Master and header pages are cached permanently in memory; changes to these are immediately flushed to
  * disk. This imposes a fairly small memory overhead (128M partitions have 2 pages cached). This caching
  * is done separately from the buffer manager's caching.
- *
+ * Master page 和 Header page都是永久缓存在内存的，改变了这些Page会立马刷新到磁盘里面
+ * <p>
  * Virtual page numbers are 64-bit integers (Java longs) assigned to data pages in the following format:
- *       partition number * 10^10 + n
+ * partition number * 10^10 + n
  * for the n-th data page of the partition (indexed from 0). This particular format (instead of a simpler
  * scheme such as assigning the upper 32 bits to partition number and lower 32 to page number) was chosen
  * for ease of debugging (it's easier to read 10000000006 as part 1 page 6, than it is to decipher 4294967302).
- *
+ * <p>
  * Partitions are backed by OS level files (one OS level file per partition), and are stored in the following
  * manner:
  * - the master page is the 0th page of the OS file
@@ -66,6 +70,9 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
     // recovery manager
     private RecoveryManager recoveryManager;
 
+    /**
+     * 掌管了一个table的相关存储信息
+     */
     private static class PartInfo implements AutoCloseable {
         // Underyling OS file/file channel.
         private RandomAccessFile file;
@@ -87,7 +94,7 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
         private int partNum;
 
         private PartInfo(int partNum, RecoveryManager recoveryManager) {
-            this.masterPage = new int[MAX_HEADER_PAGES];
+            this.masterPage = new int[MAX_HEADER_PAGES];  // 相当于 Master Page 的信息
             this.headerPages = new ArrayList<>();
             this.partitionLock = new ReentrantLock();
             this.recoveryManager = recoveryManager;
@@ -96,6 +103,7 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
 
         /**
          * Opens the OS file and loads master and header pages.
+         *
          * @param fileName name of OS file partition is stored in
          */
         private void open(String fileName) {
@@ -109,9 +117,10 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
                     for (int i = 0; i < MAX_HEADER_PAGES; ++i) {
                         this.headerPages.add(null);
                     }
-                    this.writeMasterPage();
+                    this.writeMasterPage();  // 马上刷新 master page 回去磁盘
                 } else {
                     // old file, read in master page + header pages
+                    // master page 和 header page全部都读进来
                     ByteBuffer b = ByteBuffer.wrap(new byte[PAGE_SIZE]);
                     this.fileChannel.read(b, PartInfo.masterPageOffset());
                     b.position(0);
@@ -157,6 +166,7 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
 
         /**
          * Writes a header page to disk.
+         *
          * @param headerIndex which header page
          */
         private void writeHeaderPage(int headerIndex) throws IOException {
@@ -166,6 +176,7 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
 
         /**
          * Allocates a new page in the partition.
+         *
          * @return data page number
          */
         private int allocPage() throws IOException {
@@ -202,8 +213,9 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
 
         /**
          * Allocates a new page in the partition.
+         *
          * @param headerIndex index of header page managing new page
-         * @param pageIndex index within header page of new page
+         * @param pageIndex   index within header page of new page
          * @return data page number
          */
         private int allocPage(int headerIndex, int pageIndex) throws IOException {
@@ -216,13 +228,14 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
 
             if (Bits.getBit(headerBytes, pageIndex) == Bits.Bit.ONE) {
                 throw new IllegalStateException("page at (part=" + partNum + ", header=" + headerIndex + ", index="
-                                                +
-                                                pageIndex + ") already allocated");
+                        +
+                        pageIndex + ") already allocated");
             }
 
             Bits.setBit(headerBytes, pageIndex, Bits.Bit.ONE);
             this.masterPage[headerIndex] = Bits.countBits(headerBytes);
 
+            // System.out.println(String.format("partNum: %s, headerIndex: %s, pageIndex: %s", partNum, pageIndex, headerIndex));
             int pageNum = pageIndex + headerIndex * DATA_PAGES_PER_HEADER;
 
             TransactionContext transaction = TransactionContext.getTransaction();
@@ -232,6 +245,7 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
                 recoveryManager.diskIOHook(vpn);
             }
 
+            // master page and header page write back to disk.
             this.writeMasterPage();
             this.writeHeaderPage(headerIndex);
 
@@ -240,6 +254,7 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
 
         /**
          * Frees a page in the partition from use.
+         *
          * @param pageNum data page number to be freed
          */
         private void freePage(int pageNum) throws IOException {
@@ -271,8 +286,9 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
 
         /**
          * Reads in a data page. Assumes that the partition lock is held.
+         *
          * @param pageNum data page number to read in
-         * @param buf output buffer to be filled with page - assumed to be page size
+         * @param buf     output buffer to be filled with page - assumed to be page size
          */
         private void readPage(int pageNum, byte[] buf) throws IOException {
             if (this.isNotAllocatedPage(pageNum)) {
@@ -284,8 +300,9 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
 
         /**
          * Writes to a data page. Assumes that the partition lock is held.
+         *
          * @param pageNum data page number to write to
-         * @param buf input buffer with new contents of page - assumed to be page size
+         * @param buf     input buffer with new contents of page - assumed to be page size
          */
         private void writePage(int pageNum, byte[] buf) throws IOException {
             if (this.isNotAllocatedPage(pageNum)) {
@@ -301,6 +318,7 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
 
         /**
          * Checks if page number is for an unallocated data page
+         *
          * @param pageNum data page number
          * @return true if page is not valid or not allocated
          */
@@ -328,7 +346,7 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
          * @return offset in OS file for header page
          */
         private static long headerPageOffset(int headerIndex) {
-            return (long) (1 + headerIndex * DATA_PAGES_PER_HEADER) * PAGE_SIZE;
+            return (long) (1 + headerIndex * DATA_PAGES_PER_HEADER) * PAGE_SIZE;     // 没有想明白为何这么写?
         }
 
         /**
@@ -442,7 +460,7 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
                 recoveryManager.logAllocPart(transaction.getTransNum(), partNum);
             }
 
-            pi.open(dbDir + "/" + partNum);
+            pi.open(dbDir + "/" + partNum);          // 创建一个 pageNum file
             return partNum;
         } finally {
             pi.partitionLock.unlock();
@@ -522,6 +540,9 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
             this.managerLock.unlock();
         }
         try {
+            /*
+             *  更新了master和header的信息之后就马上更新page信息并写回磁盘
+             */
             pi.allocPage(headerIndex, pageIndex);
             pi.writePage(pageNum, new byte[PAGE_SIZE]);
             return DiskSpaceManager.getVirtualPageNum(partNum, pageNum);
@@ -558,6 +579,10 @@ public class DiskSpaceManagerImpl implements DiskSpaceManager {
         if (buf.length != PAGE_SIZE) {
             throw new IllegalArgumentException("readPage expects a page-sized buffer");
         }
+
+        /*
+         *  有一个虚拟 page 向逻辑 page 转化的过程
+         */
         int partNum = DiskSpaceManager.getPartNum(page);
         int pageNum = DiskSpaceManager.getPageNum(page);
         this.managerLock.lock();

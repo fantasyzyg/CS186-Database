@@ -20,28 +20,29 @@ import java.util.Random;
 /**
  * An implementation of a heap file, using a page directory. Assumes data pages are packed (but record
  * lengths do not need to be fixed-length).
- *
+ * <p>
  * Header pages are layed out as follows:
- * - first byte: 0x1 to indicate valid allocated page
+ * - first byte: 0x1 to indicate valid allocated page  指明是否是有效的
  * - next 4 bytes: page directory id
+ * (以下都是根据page number来寻找数据)
  * - next 8 bytes: page number of next header page, or -1 (0xFFFFFFFFFFFFFFFF) if no next header page.
- * - next 10 bytes: page number of data page (or -1), followed by 2 bytes of amount of free space
+ * - next 10 bytes: page number of data page (or -1), followed by 2 bytes of amount of free space     10个字节代表一个 data page entry ，前面8个字节代表 page number，后面两个字节代表 free space
  * - repeat 10 byte entries
- *
+ * <p>
  * Data pages contain a small header containing:
  * - 4-byte page directory id
  * - 4-byte index of which header page manages it
  * - 2-byte offset indicating which slot in the header page its data page entry resides
- *
+ * <p>
  * This header is used to quickly locate and update the header page when the amount of free space on the data page
  * changes, as well as ensure that we do not modify pages in other page directories by accident.
- *
+ * <p>
  * The page directory id is a randomly generated 32-bit integer used to help detect bugs (where we attempt
  * to write to a page that is not managed by the page directory).
  */
 public class PageDirectory implements HeapFile {
     // size of the header in header pages
-    private static final short HEADER_HEADER_SIZE = 13;
+    private static final short HEADER_HEADER_SIZE = 13;       // 前面13个字节代表的是一个header，一个header page的标识
 
     // number of data page entries in a header page
     private static final short HEADER_ENTRY_COUNT = (BufferManager.EFFECTIVE_PAGE_SIZE -
@@ -59,7 +60,7 @@ public class PageDirectory implements HeapFile {
 
     // partition to allocate new header pages in - may be different from partition
     // for data pages
-    private int partNum;
+    private int partNum;     // header page 的 partition number
 
     // First header page
     private HeaderPage firstHeader;
@@ -71,17 +72,18 @@ public class PageDirectory implements HeapFile {
     private LockContext lockContext;
 
     // page directory id
-    private int pageDirectoryId;
+    private int pageDirectoryId;        // 其实可以理解为一个表的ID
 
     /**
      * Creates a new heap file, or loads existing file if one already
      * exists at partNum.
-     * @param bufferManager buffer manager
-     * @param partNum partition to allocate new header pages in (can be different partition
-     *                from data pages)
-     * @param pageNum first header page of heap file
+     *
+     * @param bufferManager         buffer manager
+     * @param partNum               partition to allocate new header pages in (can be different partition
+     *                              from data pages)
+     * @param pageNum               first header page of heap file
      * @param emptyPageMetadataSize size of metadata on an empty page
-     * @param lockContext lock context of this heap file
+     * @param lockContext           lock context of this heap file
      */
     public PageDirectory(BufferManager bufferManager, int partNum, long pageNum,
                          short emptyPageMetadataSize, LockContext lockContext) {
@@ -187,7 +189,7 @@ public class PageDirectory implements HeapFile {
 
         @Override
         public Buffer getBuffer() {
-            return super.getBuffer().position(DATA_HEADER_SIZE).slice();
+            return super.getBuffer().position(DATA_HEADER_SIZE).slice();        // 直接跳过前面的 DATA_HEADER_SIZE 后面直接就是 Bitmap
         }
 
         // get the full buffer (without skipping header) for internal use
@@ -245,9 +247,10 @@ public class PageDirectory implements HeapFile {
         private HeaderPage nextPage;
         private Page page;
         private short numDataPages;
-        private int headerOffset;
+        private int headerOffset;     // 表示 第几个 header page
 
         private HeaderPage(long pageNum, int headerOffset, boolean firstHeader) {
+            // 获取 page 进入内存，一个table除了master和header这些不需要占用内存，其他都是需要占用内存的
             this.page = bufferManager.fetchPage(lockContext, pageNum, false);
             // We do not lock header pages for the entirety of the transaction. Instead, we simply
             // use the buffer frame lock (from pinning) to ensure that one transaction writes at a time.
@@ -267,12 +270,13 @@ public class PageDirectory implements HeapFile {
                         pageDirectoryId = new Random().nextInt();
                     }
                     b.position(0).put((byte) 1).putInt(pageDirectoryId).putLong(DiskSpaceManager.INVALID_PAGE_NUM);
-                    DataPageEntry invalidPageEntry = new DataPageEntry();
+                    DataPageEntry invalidPageEntry = new DataPageEntry();      // 创建无效的 PageEntry，将其填充满一个 page
                     for (int i = 0; i < HEADER_ENTRY_COUNT; ++i) {
                         invalidPageEntry.toBytes(b);
                     }
                     nextPageNum = -1L;
 
+                    // 更新内存page
                     pageBuffer.put(buf, 0, buf.length);
                 } else {
                     // load header page
@@ -296,6 +300,7 @@ public class PageDirectory implements HeapFile {
             if (nextPageNum == DiskSpaceManager.INVALID_PAGE_NUM) {
                 this.nextPage = null;
             } else {
+                // 递归构建一个完整的 page directory 结构
                 this.nextPage = new HeaderPage(nextPageNum, headerOffset + 1, false);
             }
         }
@@ -338,9 +343,11 @@ public class PageDirectory implements HeapFile {
                     }
                     if (dpe.freeSpace >= requiredSpace) {
                         dpe.freeSpace -= requiredSpace;
+                        // 更新到 Page Directory 里面
                         b.position(b.position() - DataPageEntry.SIZE);
                         dpe.toBytes(b);
 
+                        // fetch data page and return it.
                         return bufferManager.fetchPage(lockContext, dpe.pageNum, false);
                     }
                 }
@@ -349,7 +356,7 @@ public class PageDirectory implements HeapFile {
                 if (unusedSlot != -1) {
                     Page page = bufferManager.fetchNewPage(lockContext, partNum, false);
                     DataPageEntry dpe = new DataPageEntry(page.getPageNum(),
-                                                          (short) (EFFECTIVE_PAGE_SIZE - emptyPageMetadataSize - requiredSpace));
+                            (short) (EFFECTIVE_PAGE_SIZE - emptyPageMetadataSize - requiredSpace));
 
                     b.position(HEADER_HEADER_SIZE + DataPageEntry.SIZE * unusedSlot);
                     dpe.toBytes(b);

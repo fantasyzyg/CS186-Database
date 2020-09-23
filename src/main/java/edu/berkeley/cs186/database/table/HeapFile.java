@@ -8,6 +8,8 @@ import edu.berkeley.cs186.database.memory.Page;
  * Interface for a heap file, which receives requests for pages with
  * a certain amount of space, and returns a page with enough space.
  * Assumes a packed page layout.
+ *
+ *      HeapFile ---> PageDirectory
  */
 public interface HeapFile extends BacktrackingIterable<Page> {
     /**
@@ -30,7 +32,7 @@ public interface HeapFile extends BacktrackingIterable<Page> {
 
     /**
      * Fetches a data page with a certain amount of unused space. New data and
-     * header pages may be allocated as necessary.
+     * header pages may be allocated as necessary.          注意最后一句话：必要的时候，新的数据page和header page会被创建
      * @param requiredSpace amount of space needed;
      *                      cannot be larger than effectivePageSize - emptyPageMetadataSize
      * @return pinned page with the requested area of contiguous space
@@ -58,7 +60,7 @@ public interface HeapFile extends BacktrackingIterable<Page> {
     int getNumDataPages();
 
     /**
-     * Gets partition number of partition the heap file lies on.
+     * Gets partition number of partition the heap file lies on.     分区number
      * @return partition number
      */
     int getPartNum();

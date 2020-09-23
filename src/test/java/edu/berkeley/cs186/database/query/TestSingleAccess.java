@@ -58,9 +58,13 @@ public class TestSingleAccess {
             t.createTable(schema, TABLENAME);
 
             t.createTable(schema, TABLENAME + "I");
+            // TI table 创建 int field 的索引
             t.createIndex(TABLENAME + "I", "int", false);
+
             t.createTable(schema, TABLENAME + "MI");
+            // TMI table 创建 int field 的索引
             t.createIndex(TABLENAME + "MI", "int", false);
+            // TMI table 创建 float field 的索引
             t.createIndex(TABLENAME + "MI", "float", false);
 
             t.createTable(TestUtils.createSchemaWithAllTypes("one_"), TABLENAME + "o1");
@@ -101,6 +105,7 @@ public class TestSingleAccess {
 
             transaction.getTransactionContext().getTable(TABLENAME).buildStatistics(10);
 
+            // T table 没有创建索引 index
             QueryPlan query = transaction.query(TABLENAME, "t1");
 
             QueryOperator op = query.minCostSingleAccess("t1");

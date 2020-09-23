@@ -15,6 +15,6 @@ class PNLJOperator extends BNLJOperator {
               transaction);
 
         joinType = JoinType.PNLJ;
-        numBuffers = 3;
+        numBuffers = 3;    // 其实 Page Nested Loop Join 是 Block Nested Loop Join 的一个特例，只需要把 buffer 数量设置为3即可
     }
 }

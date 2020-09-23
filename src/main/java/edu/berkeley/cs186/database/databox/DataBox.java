@@ -2,29 +2,29 @@ package edu.berkeley.cs186.database.databox;
 
 import edu.berkeley.cs186.database.common.Buffer;
 
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 /**
  * A DataBox is an element of one of the primitive types specified in
  * Type.java. You can create
- *
- *   - booleans with new BoolDataBox(b),
- *   - integers with new IntDataBox(i),
- *   - floats with new FloatDataBox(f),
- *   - strings with new StringDataBox(s, n), and
- *   - longs with new LongDataBox(l).
- *
+ * <p>
+ * - booleans with new BoolDataBox(b),
+ * - integers with new IntDataBox(i),
+ * - floats with new FloatDataBox(f),
+ * - strings with new StringDataBox(s, n), and
+ * - longs with new LongDataBox(l).
+ * <p>
  * You can unwrap a databox by first pattern matching on its type and then
  * using one of getBool, getInt, getFloat, getString, and getLong:
- *
- *   Databox d = DataBox.fromBytes(bytes);
- *   switch (d.type().getTypeId()) {
- *     case BOOL:   { System.out.println(d.getBool()); }
- *     case INT:    { System.out.println(d.getInt()); }
- *     case FLOAT:  { System.out.println(d.getFloat()); }
- *     case STRING: { System.out.println(d.getString()); }
- *     case LONG:   { System.out.println(d.getLong()); }
- *   }
+ * <p>
+ * Databox d = DataBox.fromBytes(bytes);
+ * switch (d.type().getTypeId()) {
+ * case BOOL:   { System.out.println(d.getBool()); }
+ * case INT:    { System.out.println(d.getInt()); }
+ * case FLOAT:  { System.out.println(d.getFloat()); }
+ * case STRING: { System.out.println(d.getString()); }
+ * case LONG:   { System.out.println(d.getLong()); }
+ * }
  */
 public abstract class DataBox implements Comparable<DataBox> {
     public abstract Type type();
@@ -65,31 +65,31 @@ public abstract class DataBox implements Comparable<DataBox> {
 
     public static DataBox fromBytes(Buffer buf, Type type) {
         switch (type.getTypeId()) {
-        case BOOL: {
-            byte b = buf.get();
-            assert (b == 0 || b == 1);
-            return new BoolDataBox(b == 1);
-        }
-        case INT: {
-            return new IntDataBox(buf.getInt());
-        }
-        case FLOAT: {
-            return new FloatDataBox(buf.getFloat());
-        }
-        case STRING: {
-            byte[] bytes = new byte[type.getSizeInBytes()];
-            buf.get(bytes);
-            String s = new String(bytes, Charset.forName("UTF-8"));
-            return new StringDataBox(s, type.getSizeInBytes());
-        }
-        case LONG: {
-            return new LongDataBox(buf.getLong());
-        }
-        default: {
-            String err = String.format("Unhandled TypeId %s.",
-                                       type.getTypeId().toString());
-            throw new IllegalArgumentException(err);
-        }
+            case BOOL: {
+                byte b = buf.get();
+                assert (b == 0 || b == 1);
+                return new BoolDataBox(b == 1);
+            }
+            case INT: {
+                return new IntDataBox(buf.getInt());
+            }
+            case FLOAT: {
+                return new FloatDataBox(buf.getFloat());
+            }
+            case STRING: {
+                byte[] bytes = new byte[type.getSizeInBytes()];
+                buf.get(bytes);
+                String s = new String(bytes, StandardCharsets.UTF_8);
+                return new StringDataBox(s, type.getSizeInBytes());
+            }
+            case LONG: {
+                return new LongDataBox(buf.getLong());
+            }
+            default: {
+                String err = String.format("Unhandled TypeId %s.",
+                        type.getTypeId().toString());
+                throw new IllegalArgumentException(err);
+            }
         }
     }
 }

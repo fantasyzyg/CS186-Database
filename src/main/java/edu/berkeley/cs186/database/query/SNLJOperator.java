@@ -14,11 +14,11 @@ public class SNLJOperator extends JoinOperator {
                         String rightColumnName,
                         TransactionContext transaction) {
         super(leftSource,
-              rightSource,
-              leftColumnName,
-              rightColumnName,
-              transaction,
-              JoinType.SNLJ);
+                rightSource,
+                leftColumnName,
+                rightColumnName,
+                transaction,
+                JoinType.SNLJ);
 
         this.stats = this.estimateStats();
         this.cost = this.estimateIOCost();
@@ -68,7 +68,9 @@ public class SNLJOperator extends JoinOperator {
             // We mark the first record so we can reset to it when we advance the left record.
             if (rightRecord != null) {
                 rightIterator.markPrev();
-            } else { return; }
+            } else {
+                return;
+            }
 
             try {
                 fetchNextRecord();
@@ -84,18 +86,20 @@ public class SNLJOperator extends JoinOperator {
          */
         private void resetRightRecord() {
             this.rightIterator.reset();
-            assert(rightIterator.hasNext());
+            assert (rightIterator.hasNext());
             rightRecord = rightIterator.next();
         }
 
         /**
          * Advances the left record
-         *
+         * <p>
          * The thrown exception means we're done: there is no next record
          * It causes this.fetchNextRecord (the caller) to hand control to its caller.
          */
         private void nextLeftRecord() {
-            if (!leftIterator.hasNext()) { throw new NoSuchElementException("All Done!"); }
+            if (!leftIterator.hasNext()) {
+                throw new NoSuchElementException("All Done!");
+            }
             leftRecord = leftIterator.next();
         }
 
@@ -104,7 +108,9 @@ public class SNLJOperator extends JoinOperator {
          * Pre-fetching simplifies the logic of this.hasNext() and this.next()
          */
         private void fetchNextRecord() {
-            if (this.leftRecord == null) { throw new NoSuchElementException("No new record to fetch"); }
+            if (this.leftRecord == null) {
+                throw new NoSuchElementException("No new record to fetch");
+            }
             this.nextRecord = null;
             do {
                 if (this.rightRecord != null) {

@@ -84,13 +84,13 @@ public class Database implements AutoCloseable {
      * @param fileDir the directory to put the table files in
      */
     public Database(String fileDir) {
-        this (fileDir, DEFAULT_BUFFER_SIZE);
+        this(fileDir, DEFAULT_BUFFER_SIZE);
     }
 
     /**
      * Creates a new database with locking disabled.
      *
-     * @param fileDir the directory to put the table files in
+     * @param fileDir        the directory to put the table files in
      * @param numMemoryPages the number of pages of memory in the buffer cache
      */
     public Database(String fileDir, int numMemoryPages) {
@@ -101,9 +101,9 @@ public class Database implements AutoCloseable {
     /**
      * Creates a new database.
      *
-     * @param fileDir the directory to put the table files in
+     * @param fileDir        the directory to put the table files in
      * @param numMemoryPages the number of pages of memory in the buffer cache
-     * @param lockManager the lock manager
+     * @param lockManager    the lock manager
      */
     public Database(String fileDir, int numMemoryPages, LockManager lockManager) {
         this(fileDir, numMemoryPages, lockManager, new ClockEvictionPolicy());
@@ -112,10 +112,10 @@ public class Database implements AutoCloseable {
     /**
      * Creates a new database.
      *
-     * @param fileDir the directory to put the table files in
+     * @param fileDir        the directory to put the table files in
      * @param numMemoryPages the number of pages of memory in the buffer cache
-     * @param lockManager the lock manager
-     * @param policy eviction policy for buffer cache
+     * @param lockManager    the lock manager
+     * @param policy         eviction policy for buffer cache
      */
     public Database(String fileDir, int numMemoryPages, LockManager lockManager,
                     EvictionPolicy policy) {
@@ -125,10 +125,10 @@ public class Database implements AutoCloseable {
     /**
      * Creates a new database.
      *
-     * @param fileDir the directory to put the table files in
-     * @param numMemoryPages the number of pages of memory in the buffer cache
-     * @param lockManager the lock manager
-     * @param policy eviction policy for buffer cache
+     * @param fileDir            the directory to put the table files in
+     * @param numMemoryPages     the number of pages of memory in the buffer cache
+     * @param lockManager        the lock manager
+     * @param policy             eviction policy for buffer cache
      * @param useRecoveryManager flag to enable or disable the recovery manager (ARIES)
      */
     public Database(String fileDir, int numMemoryPages, LockManager lockManager,
@@ -154,9 +154,10 @@ public class Database implements AutoCloseable {
 
         diskSpaceManager = new DiskSpaceManagerImpl(fileDir, recoveryManager);
         bufferManager = new BufferManagerImpl(diskSpaceManager, recoveryManager, numMemoryPages,
-                                              policy);
+                policy);
 
         if (!initialized) {
+            // log partition
             diskSpaceManager.allocPart(0);
         }
 
@@ -174,6 +175,7 @@ public class Database implements AutoCloseable {
         TransactionContext.setTransaction(primaryInitTransaction.getTransactionContext());
 
         if (!initialized) {
+            // 一个table占用一个partition
             // create log partition, information_schema.tables partition, and information_schema.indices partition
             diskSpaceManager.allocPart(1);
             diskSpaceManager.allocPart(2);
@@ -194,6 +196,12 @@ public class Database implements AutoCloseable {
         }
     }
 
+    /**
+     * 创建临时文件目录
+     *
+     * @param fileDir 文件夹
+     * @return
+     */
     private boolean setupDirectory(String fileDir) {
         File dir = new File(fileDir);
         boolean initialized = dir.exists();
@@ -216,22 +224,29 @@ public class Database implements AutoCloseable {
     private void initTableInfo() {
         TransactionContext.setTransaction(primaryInitTransaction.getTransactionContext());
 
+        // 虚拟 page
         long tableInfoPage0 = DiskSpaceManager.getVirtualPageNum(1, 0);
         diskSpaceManager.allocPage(tableInfoPage0);
 
         LockContext tableInfoContext = getTableInfoContext();
+
         HeapFile tableInfoHeapFile = new PageDirectory(bufferManager, 1, tableInfoPage0, (short) 0,
                 tableInfoContext);
+
         tableInfo = new Table(TABLE_INFO_TABLE_NAME, getTableInfoSchema(), tableInfoHeapFile,
-                              tableInfoContext);
+                tableInfoContext);
+
         tableInfo.disableAutoEscalate();
+
+        // 把自己存起来到元信息里面 ，这样一个表占用的信息就已经填满了 data page
         tableInfoLookup.put(TABLE_INFO_TABLE_NAME, tableInfo.addRecord(Arrays.asList(
-                                new StringDataBox(TABLE_INFO_TABLE_NAME, 32),
-                                new IntDataBox(1),
-                                new LongDataBox(tableInfoPage0),
-                                new BoolDataBox(false),
-                                new StringDataBox(new String(getTableInfoSchema().toBytes()), MAX_SCHEMA_SIZE)
-                            )));
+                new StringDataBox(TABLE_INFO_TABLE_NAME, 32),
+                new IntDataBox(1),
+                new LongDataBox(tableInfoPage0),
+                new BoolDataBox(false),
+                new StringDataBox(new String(getTableInfoSchema().toBytes()), MAX_SCHEMA_SIZE)
+        )));
+
         tableLookup.put(TABLE_INFO_TABLE_NAME, tableInfo);
         tableIndices.put(TABLE_INFO_TABLE_NAME, Collections.emptyList());
 
@@ -248,17 +263,19 @@ public class Database implements AutoCloseable {
 
         LockContext indexInfoContext = getIndexInfoContext();
         HeapFile heapFile = new PageDirectory(bufferManager, 2, indexInfoPage0, (short) 0,
-                                              indexInfoContext);
+                indexInfoContext);
         indexInfo = new Table(INDEX_INFO_TABLE_NAME, getIndexInfoSchema(), heapFile, indexInfoContext);
         indexInfo.disableAutoEscalate();
         indexInfo.setFullPageRecords();
+
+        // information_schema.tables 又将 information_schema.indices 存了起来占用一个 data page
         tableInfoLookup.put(INDEX_INFO_TABLE_NAME, tableInfo.addRecord(Arrays.asList(
-                                new StringDataBox(INDEX_INFO_TABLE_NAME, 32),
-                                new IntDataBox(2),
-                                new LongDataBox(indexInfoPage0),
-                                new BoolDataBox(false),
-                                new StringDataBox(new String(getIndexInfoSchema().toBytes()), MAX_SCHEMA_SIZE)
-                            )));
+                new StringDataBox(INDEX_INFO_TABLE_NAME, 32),
+                new IntDataBox(2),
+                new LongDataBox(indexInfoPage0),
+                new BoolDataBox(false),
+                new StringDataBox(new String(getIndexInfoSchema().toBytes()), MAX_SCHEMA_SIZE)
+        )));
         tableLookup.put(INDEX_INFO_TABLE_NAME, indexInfo);
         tableIndices.put(INDEX_INFO_TABLE_NAME, Collections.emptyList());
 
@@ -272,7 +289,7 @@ public class Database implements AutoCloseable {
         HeapFile tableInfoHeapFile = new PageDirectory(bufferManager, 1,
                 DiskSpaceManager.getVirtualPageNum(1, 0), (short) 0, tableInfoContext);
         tableInfo = new Table(TABLE_INFO_TABLE_NAME, getTableInfoSchema(), tableInfoHeapFile,
-                              tableInfoContext);
+                tableInfoContext);
         tableInfo.disableAutoEscalate();
         tableLookup.put(TABLE_INFO_TABLE_NAME, tableInfo);
         tableIndices.put(TABLE_INFO_TABLE_NAME, Collections.emptyList());
@@ -281,7 +298,7 @@ public class Database implements AutoCloseable {
         HeapFile indexInfoHeapFile = new PageDirectory(bufferManager, 2,
                 DiskSpaceManager.getVirtualPageNum(2, 0), (short) 0, indexInfoContext);
         indexInfo = new Table(INDEX_INFO_TABLE_NAME, getIndexInfoSchema(), indexInfoHeapFile,
-                              indexInfoContext);
+                indexInfoContext);
         indexInfo.disableAutoEscalate();
         indexInfo.setFullPageRecords();
         tableLookup.put(INDEX_INFO_TABLE_NAME, indexInfo);
@@ -335,7 +352,7 @@ public class Database implements AutoCloseable {
                     // if table exists due to X(table metadata) lock
                     LockContext tableContext = getTableContext(record.tableName, record.partNum);
                     HeapFile heapFile = new PageDirectory(bufferManager, record.partNum, record.pageNum, (short) 0,
-                                                          tableContext);
+                            tableContext);
                     Table table = new Table(record.tableName, record.schema, heapFile, tableContext);
                     tableLookup.put(record.tableName, table);
 
@@ -499,7 +516,7 @@ public class Database implements AutoCloseable {
     public int getWorkMem() {
         // cap work memory at number of memory pages -- this is likely to cause out of memory
         // errors if actually set this high
-        return this.workMem > this.numMemoryPages ? this.numMemoryPages : this.workMem;
+        return Math.min(this.workMem, this.numMemoryPages);
     }
 
     public void setWorkMem(int workMem) {
@@ -509,20 +526,20 @@ public class Database implements AutoCloseable {
     // schema for information_schema.tables
     private Schema getTableInfoSchema() {
         return new Schema(
-                   Arrays.asList("table_name", "part_num", "page_num", "is_temporary", "schema"),
-                   Arrays.asList(Type.stringType(32), Type.intType(), Type.longType(), Type.boolType(),
-                                 Type.stringType(MAX_SCHEMA_SIZE))
-               );
+                Arrays.asList("table_name", "part_num", "page_num", "is_temporary", "schema"),
+                Arrays.asList(Type.stringType(32), Type.intType(), Type.longType(), Type.boolType(),
+                        Type.stringType(MAX_SCHEMA_SIZE))
+        );
     }
 
     // schema for information_schema.indices
     private Schema getIndexInfoSchema() {
         return new Schema(
-                   Arrays.asList("table_name", "col_name", "order", "part_num", "root_page_num", "key_schema_typeid",
-                                 "key_schema_typesize", "height"),
-                   Arrays.asList(Type.stringType(32), Type.stringType(32), Type.intType(), Type.intType(),
-                                 Type.longType(), Type.intType(), Type.intType(), Type.intType())
-               );
+                Arrays.asList("table_name", "col_name", "order", "part_num", "root_page_num", "key_schema_typeid",
+                        "key_schema_typesize", "height"),
+                Arrays.asList(Type.stringType(32), Type.stringType(32), Type.intType(), Type.intType(),
+                        Type.longType(), Type.intType(), Type.intType(), Type.intType())
+        );
     }
 
     // a single row of information_schema.tables
@@ -552,12 +569,12 @@ public class Database implements AutoCloseable {
 
         List<DataBox> toDataBox() {
             return Arrays.asList(
-                       new StringDataBox(tableName, 32),
-                       new IntDataBox(partNum),
-                       new LongDataBox(pageNum),
-                       new BoolDataBox(isTemporary),
-                       new StringDataBox(new String(schema.toBytes()), MAX_SCHEMA_SIZE)
-                   );
+                    new StringDataBox(tableName, 32),
+                    new IntDataBox(partNum),
+                    new LongDataBox(pageNum),
+                    new BoolDataBox(isTemporary),
+                    new StringDataBox(new String(schema.toBytes()), MAX_SCHEMA_SIZE)
+            );
         }
 
         boolean isAllocated() {
@@ -665,15 +682,15 @@ public class Database implements AutoCloseable {
                 }
                 String[] parts = indexName.split(",", 2);
                 return Database.this.indexInfo.addRecord(Arrays.asList(
-                            new StringDataBox(parts[0], 32),
-                            new StringDataBox(parts[1], 32),
-                            new IntDataBox(-1),
-                            new IntDataBox(-1),
-                            new LongDataBox(DiskSpaceManager.INVALID_PAGE_NUM),
-                            new IntDataBox(TypeId.INT.ordinal()),
-                            new IntDataBox(4),
-                            new IntDataBox(-1)
-                        ));
+                        new StringDataBox(parts[0], 32),
+                        new StringDataBox(parts[1], 32),
+                        new IntDataBox(-1),
+                        new IntDataBox(-1),
+                        new LongDataBox(DiskSpaceManager.INVALID_PAGE_NUM),
+                        new IntDataBox(TypeId.INT.ordinal()),
+                        new IntDataBox(4),
+                        new IntDataBox(-1)
+                ));
             });
         }
 
@@ -734,6 +751,7 @@ public class Database implements AutoCloseable {
 
     /**
      * Updates the transaction number counter.
+     *
      * @param newTransactionCounter new transaction number counter
      */
     private synchronized void setTransactionCounter(long newTransactionCounter) {
@@ -768,8 +786,10 @@ public class Database implements AutoCloseable {
             String tempTableName = "tempTable" + tempTableCounter++;
             String tableName = prefixTempTableName(tempTableName);
 
+            // 创建一个表，会创建一个part，并且生成一个 pageNum ，更新磁盘文件
             int partNum = diskSpaceManager.allocPart();
             long pageNum = diskSpaceManager.allocPage(partNum);
+            // 下面这条指令增加了一个磁盘 page IO
             RecordId recordId = tableInfo.addRecord(Arrays.asList(
                     new StringDataBox(tableName, 32),
                     new IntDataBox(partNum),
@@ -778,9 +798,15 @@ public class Database implements AutoCloseable {
                     new StringDataBox(new String(schema.toBytes()), MAX_SCHEMA_SIZE)));
             tableInfoLookup.put(tableName, recordId);
 
+
+//            System.out.println(tableInfo.getName());
+//            tableInfo.iterator().forEachRemaining(
+//                    record -> System.out.println(String.format("tableName: %s, partNum: %s, pageNum: %s", record.getValues().get(0).getString(), record.getValues().get(1).getInt(), record.getValues().get(2).getLong())));
+
             LockContext lockContext = getTableContext(tableName, partNum);
             lockContext.disableChildLocks();
-            HeapFile heapFile = new PageDirectory(bufferManager, partNum, pageNum, (short) 0, lockContext);
+            // 下面会增加一次磁盘page IO
+            HeapFile heapFile = new PageDirectory(bufferManager, partNum, pageNum, (short) 0, lockContext);    // 创建一个 PageDirectory 会有一个 header page
             tempTables.put(tempTableName, new Table(tableName, schema, heapFile, lockContext));
             tableLookup.put(tableName, tempTables.get(tempTableName));
             tableIndices.put(tableName, Collections.emptyList());
@@ -835,15 +861,15 @@ public class Database implements AutoCloseable {
         @Override
         public void updateIndexMetadata(BPlusTreeMetadata metadata) {
             indexInfo.updateRecord(Arrays.asList(
-                                       new StringDataBox(metadata.getTableName(), 32),
-                                       new StringDataBox(metadata.getColName(), 32),
-                                       new IntDataBox(metadata.getOrder()),
-                                       new IntDataBox(metadata.getPartNum()),
-                                       new LongDataBox(metadata.getRootPageNum()),
-                                       new IntDataBox(metadata.getKeySchema().getTypeId().ordinal()),
-                                       new IntDataBox(metadata.getKeySchema().getSizeInBytes()),
-                                       new IntDataBox(metadata.getHeight())
-                                   ), indexInfoLookup.get(metadata.getName()));
+                    new StringDataBox(metadata.getTableName(), 32),
+                    new StringDataBox(metadata.getColName(), 32),
+                    new IntDataBox(metadata.getOrder()),
+                    new IntDataBox(metadata.getPartNum()),
+                    new LongDataBox(metadata.getRootPageNum()),
+                    new IntDataBox(metadata.getKeySchema().getTypeId().ordinal()),
+                    new IntDataBox(metadata.getKeySchema().getSizeInBytes()),
+                    new IntDataBox(metadata.getHeight())
+            ), indexInfoLookup.get(metadata.getName()));
         }
 
         @Override
@@ -858,7 +884,7 @@ public class Database implements AutoCloseable {
                 int offset = getTable(tableName).getSchema().getFieldNames().indexOf(columnName);
                 try {
                     return new SortOperator(this, tableName,
-                                            Comparator.comparing((Record r) -> r.getValues().get(offset))).iterator();
+                            Comparator.comparing((Record r) -> r.getValues().get(offset))).iterator();
                 } catch (QueryPlanException e2) {
                     throw new DatabaseException(e2);
                 }
@@ -893,7 +919,7 @@ public class Database implements AutoCloseable {
 
         @Override
         public BacktrackingIterator<Record> getBlockIterator(String tableName, Iterator<Page> block,
-                int maxPages) {
+                                                             int maxPages) {
             return getTable(tableName).blockIterator(block, maxPages);
         }
 
@@ -906,6 +932,7 @@ public class Database implements AutoCloseable {
         @Override
         public RecordId addRecord(String tableName, List<DataBox> values) {
             Table tab = getTable(tableName);
+            // 返回在那一个page里面的哪一个offset
             RecordId rid = tab.addRecord(values);
             Schema s = tab.getSchema();
             List<String> colNames = s.getFieldNames();
@@ -969,7 +996,7 @@ public class Database implements AutoCloseable {
             int uindex = s.getFieldNames().indexOf(targetColumnName);
             int pindex = s.getFieldNames().indexOf(predColumnName);
 
-            while(recordIds.hasNext()) {
+            while (recordIds.hasNext()) {
                 RecordId curRID = recordIds.next();
                 Record cur = getRecord(tableName, curRID);
                 List<DataBox> recordCopy = new ArrayList<>(cur.getValues());
@@ -990,7 +1017,7 @@ public class Database implements AutoCloseable {
             Schema s = tab.getSchema();
             int pindex = s.getFieldNames().indexOf(predColumnName);
 
-            while(recordIds.hasNext()) {
+            while (recordIds.hasNext()) {
                 RecordId curRID = recordIds.next();
                 Record cur = getRecord(tableName, curRID);
                 List<DataBox> recordCopy = new ArrayList<>(cur.getValues());
@@ -1063,14 +1090,21 @@ public class Database implements AutoCloseable {
             return "Transaction Context for Transaction " + transNum;
         }
 
+        /**
+         * @param tableName  table 别名
+         * @param columnName 列名
+         * @return
+         */
         private Pair<String, BPlusTreeMetadata> resolveIndexMetadataFromName(String tableName,
-                String columnName) {
+                                                                             String columnName) {
+            String alias = tableName;
+
             if (aliases.containsKey(tableName)) {
                 tableName = aliases.get(tableName);
             }
             if (columnName.contains(".")) {
                 String columnPrefix = columnName.split("\\.")[0];
-                if (!tableName.equals(columnPrefix)) {
+                if (!tableName.equals(columnPrefix) && !alias.equals(columnPrefix)) {
                     throw new DatabaseException("Column: " + columnName + " is not a column of " + tableName);
                 }
                 columnName = columnName.split("\\.")[1];
@@ -1090,8 +1124,13 @@ public class Database implements AutoCloseable {
             return new Pair<>(indexName, metadata);
         }
 
+        /**
+         * @param tableName  表名
+         * @param columnName 列名
+         * @return
+         */
         private Pair<String, BPlusTree> resolveIndexFromName(String tableName,
-                String columnName) {
+                                                             String columnName) {
             String indexName = resolveIndexMetadataFromName(tableName, columnName).getFirst();
             return new Pair<>(indexName, Database.this.indexLookup.get(indexName));
         }
@@ -1199,17 +1238,20 @@ public class Database implements AutoCloseable {
                     throw new DatabaseException("table " + prefixedTableName + " already exists");
                 }
 
+                System.out.println("before: " + getBufferManager().getNumIOs());
                 record.partNum = diskSpaceManager.allocPart();
                 record.pageNum = diskSpaceManager.allocPage(record.partNum);
                 record.isTemporary = false;
                 record.schema = s;
                 tableInfo.updateRecord(record.toDataBox(), tableInfoLookup.get(prefixedTableName));
+                System.out.println("after: " + getBufferManager().getNumIOs());
+                System.out.println(String.format("partNum: %s, pageNum: %s, table: %s", record.partNum, record.pageNum, tableName));
 
                 LockContext tableContext = getTableContext(prefixedTableName, record.partNum);
                 HeapFile heapFile = new PageDirectory(bufferManager, record.partNum, record.pageNum,
-                                                      (short) 0, tableContext);
+                        (short) 0, tableContext);
                 tableLookup.put(prefixedTableName, new Table(prefixedTableName, s,
-                                heapFile, tableContext));
+                        heapFile, tableContext));
                 tableIndices.put(prefixedTableName, new ArrayList<>());
             } finally {
                 TransactionContext.unsetTransaction();
@@ -1305,15 +1347,15 @@ public class Database implements AutoCloseable {
 
                 int order = BPlusTree.maxOrder(BufferManager.EFFECTIVE_PAGE_SIZE, colType);
                 List<DataBox> values = Arrays.asList(
-                                           new StringDataBox(tableName, 32),
-                                           new StringDataBox(columnName, 32),
-                                           new IntDataBox(order),
-                                           new IntDataBox(diskSpaceManager.allocPart()),
-                                           new LongDataBox(DiskSpaceManager.INVALID_PAGE_NUM),
-                                           new IntDataBox(colType.getTypeId().ordinal()),
-                                           new IntDataBox(colType.getSizeInBytes()),
-                                           new IntDataBox(-1)
-                                       );
+                        new StringDataBox(tableName, 32),
+                        new StringDataBox(columnName, 32),
+                        new IntDataBox(order),
+                        new IntDataBox(diskSpaceManager.allocPart()),
+                        new LongDataBox(DiskSpaceManager.INVALID_PAGE_NUM),
+                        new IntDataBox(colType.getTypeId().ordinal()),
+                        new IntDataBox(colType.getSizeInBytes()),
+                        new IntDataBox(-1)
+                );
                 indexInfo.updateRecord(values, indexInfoLookup.get(indexName));
                 metadata = parseIndexMetadata(new Record(values));
                 assert (metadata != null);
@@ -1353,15 +1395,15 @@ public class Database implements AutoCloseable {
                     throw new DatabaseException("no index on " + tableName + "(" + columnName + ")");
                 }
                 indexInfo.updateRecord(Arrays.asList(
-                                           new StringDataBox(tableName, 32),
-                                           new StringDataBox(columnName, 32),
-                                           new IntDataBox(-1),
-                                           new IntDataBox(-1),
-                                           new LongDataBox(DiskSpaceManager.INVALID_PAGE_NUM),
-                                           new IntDataBox(TypeId.INT.ordinal()),
-                                           new IntDataBox(4),
-                                           new IntDataBox(-1)
-                                       ), indexInfoLookup.get(indexName));
+                        new StringDataBox(tableName, 32),
+                        new StringDataBox(columnName, 32),
+                        new IntDataBox(-1),
+                        new IntDataBox(-1),
+                        new LongDataBox(DiskSpaceManager.INVALID_PAGE_NUM),
+                        new IntDataBox(TypeId.INT.ordinal()),
+                        new IntDataBox(4),
+                        new IntDataBox(-1)
+                ), indexInfoLookup.get(indexName));
 
                 bufferManager.freePart(metadata.getPartNum());
                 indexLookup.remove(indexName);
@@ -1401,7 +1443,7 @@ public class Database implements AutoCloseable {
             TransactionContext.setTransaction(transactionContext);
             try {
                 transactionContext.runUpdateRecordWhere(tableName, targetColumnName, targetValue, predColumnName,
-                                                        predOperator, predValue);
+                        predOperator, predValue);
             } finally {
                 TransactionContext.unsetTransaction();
             }

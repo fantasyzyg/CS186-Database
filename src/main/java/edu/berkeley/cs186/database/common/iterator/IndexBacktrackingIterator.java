@@ -19,6 +19,7 @@ public abstract class IndexBacktrackingIterator<T> implements BacktrackingIterat
 
     /**
      * Get the next nonempty index. Initial call uses -1.
+     *
      * @return next nonempty index or the max index if no more values.
      */
     protected abstract int getNextNonempty(int currentIndex);
@@ -26,6 +27,7 @@ public abstract class IndexBacktrackingIterator<T> implements BacktrackingIterat
     /**
      * Get the value at the given index. Index will always be a value returned
      * by getNextNonempty.
+     *
      * @param index index to get value at
      * @return value at index
      */

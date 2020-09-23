@@ -12,8 +12,8 @@ import java.util.Objects;
  * entry number.
  */
 public class RecordId implements Comparable<RecordId> {
-    private long pageNum;
-    private short entryNum;
+    private long pageNum;    // 磁盘的哪一个Page
+    private short entryNum;      // Page 中的 Index
 
     public RecordId(long pageNum, short entryNum) {
         this.pageNum = pageNum;

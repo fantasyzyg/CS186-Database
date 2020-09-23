@@ -9,7 +9,7 @@ import edu.berkeley.cs186.database.memory.Page;
 import edu.berkeley.cs186.database.table.Record;
 
 class BNLJOperator extends JoinOperator {
-    protected int numBuffers;
+    protected int numBuffers;      // Buffer B pages
 
     BNLJOperator(QueryOperator leftSource,
                  QueryOperator rightSource,
@@ -36,17 +36,17 @@ class BNLJOperator extends JoinOperator {
         int numLeftPages = getLeftSource().getStats().getNumPages();
         int numRightPages = getRightSource().getStats().getNumPages();
         return ((int) Math.ceil((double) numLeftPages / (double) usableBuffers)) * numRightPages +
-               numLeftPages;
+                numLeftPages;
     }
 
     /**
      * BNLJ: Block Nested Loop Join
-     *  See lecture slides.
-     *
+     * See lecture slides.
+     * <p>
      * An implementation of Iterator that provides an iterator interface for this operator.
-     *
+     * <p>
      * Word of advice: try to decompose the problem into distinguishable sub-problems.
-     *    This means you'll probably want to add more methods than those given.
+     * This means you'll probably want to add more methods than those given.
      */
     private class BNLJIterator extends JoinIterator {
         // Iterator over pages of the left relation
@@ -59,17 +59,20 @@ class BNLJOperator extends JoinOperator {
         private BacktrackingIterator<Record> rightRecordIterator = null;
         // The current record on the left page
         private Record leftRecord = null;
+        // The current record on the right page
+        private Record rightRecord = null;
         // The next record to return
         private Record nextRecord = null;
 
         private BNLJIterator() {
             super();
 
+            // 获取left table Page iterator
             this.leftIterator = BNLJOperator.this.getPageIterator(this.getLeftTableName());
             fetchNextLeftBlock();
 
             this.rightIterator = BNLJOperator.this.getPageIterator(this.getRightTableName());
-            this.rightIterator.markNext();
+            this.rightIterator.markNext();   // 这个点比较重要的！
             fetchNextRightPage();
 
             try {
@@ -83,40 +86,103 @@ class BNLJOperator extends JoinOperator {
          * Fetch the next non-empty block of B - 2 pages from the left relation. leftRecordIterator
          * should be set to a record iterator over the next B - 2 pages of the left relation that
          * have a record in them, and leftRecord should be set to the first record in this block.
-         *
+         * <p>
          * If there are no more pages in the left relation with records, both leftRecordIterator
          * and leftRecord should be set to null.
          */
         private void fetchNextLeftBlock() {
-            // TODO(proj3_part1): implement
+            if (leftIterator.hasNext()) {
+                leftRecordIterator = getBlockIterator(getLeftTableName(), leftIterator, numBuffers - 2);
+                leftRecordIterator.markNext();
+                leftRecord = leftRecordIterator.next();
+            } else {
+                leftRecordIterator = null;
+                leftRecord = null;
+            }
         }
 
         /**
          * Fetch the next non-empty page from the right relation. rightRecordIterator
          * should be set to a record iterator over the next page of the right relation that
          * has a record in it.
-         *
+         * <p>
          * If there are no more pages in the left relation with records, rightRecordIterator
          * should be set to null.
          */
         private void fetchNextRightPage() {
-            // TODO(proj3_part1): implement
+            if (rightIterator.hasNext()) {
+                rightRecordIterator = getBlockIterator(getRightTableName(), rightIterator, 1);
+                rightRecordIterator.markNext();
+                rightRecord = rightRecordIterator.next();
+            } else {
+                rightRecordIterator = null;
+                rightRecord = null;
+            }
         }
 
         /**
          * Fetches the next record to return, and sets nextRecord to it. If there are no more
          * records to return, a NoSuchElementException should be thrown.
+         * <p>
+         * 判断依据就是：
+         * 1. 如果右表的那一个page还有record的话，则可以继续进行比对
+         * 2. 否则看左表的block是否还有record，有的话则取吓一条，右表的page需要重新从第一条record进行比对
+         * 3. 如果左表也没有record的话，则看右表是否还有page，有的话，取下一个page，左表的block从第一条记录开始
+         * 4. 如果右表也没有page了的话，则左表取下一个block，右表从第一个page开始
+         * 5. 如果上面的条件都不满足的话，则已经没有记录了
          *
          * @throws NoSuchElementException if there are no more Records to yield
          */
         private void fetchNextRecord() {
-            // TODO(proj3_part1): implement
+            if (leftRecord == null || rightRecordIterator == null) {
+                throw new NoSuchElementException("No new record to fetch!");
+            }
+
+            this.nextRecord = null;
+            while (!hasNext()) {
+                if (rightRecord != null) {
+                    DataBox leftJoinValue = this.leftRecord.getValues().get(getLeftColumnIndex());
+                    DataBox rightJoinValue = this.rightRecord.getValues().get(getRightColumnIndex());
+                    if (leftJoinValue.equals(rightJoinValue)) {
+                        this.nextRecord = joinRecords(leftRecord, rightRecord);
+                    }
+
+                    // rightRecord 需要向前走一步
+                    rightRecord = rightRecordIterator.hasNext() ? rightRecordIterator.next() : null;
+                } else if (leftRecordIterator.hasNext()) {
+                    // 右边是null,说明对于左边的一条记录已经遍历了全部右边的记录了，所以左边需要向前一步
+                    leftRecord = leftRecordIterator.next();
+                    this.rightRecordIterator.reset();
+                    rightRecord = rightRecordIterator.hasNext() ? rightRecordIterator.next() : null;
+                } else if (rightIterator.hasNext()) {
+                    // 获取右表的下一个Page了
+                    fetchNextRightPage();
+                    // 重置左表
+                    leftRecordIterator.reset();
+                    if (leftRecordIterator.hasNext()) {
+                        leftRecord = leftRecordIterator.next();
+                    } else {
+                        leftRecord = null;
+                    }
+                } else if (leftIterator.hasNext()) {
+                    // 获取左表的下一个Block
+                    fetchNextLeftBlock();
+
+                    // 恢复右表指针指向第一个page
+                    rightIterator.reset();
+                    // 获取右表的下一个page
+                    fetchNextRightPage();
+                } else {
+                    throw new NoSuchElementException("No new record to fetch!");
+                }
+            }
         }
 
         /**
          * Helper method to create a joined record from a record of the left relation
          * and a record of the right relation.
-         * @param leftRecord Record from the left relation
+         *
+         * @param leftRecord  Record from the left relation
          * @param rightRecord Record from the right relation
          * @return joined record
          */

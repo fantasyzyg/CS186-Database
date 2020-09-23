@@ -1,6 +1,6 @@
 package edu.berkeley.cs186.database.databox;
 
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 public class StringDataBox extends DataBox {
     private String s;
@@ -15,16 +15,17 @@ public class StringDataBox extends DataBox {
     public StringDataBox(String s, int m) {
         if (m <= 0) {
             String msg = String.format("Cannot construct a %d-byte string. " +
-                                       "Strings must be at least one byte.", m);
+                    "Strings must be at least one byte.", m);
             throw new DataBoxException(msg);
         }
 
         if (m < s.length()) {
             this.s = s.substring(0, m);
         } else {
+            // 补足想要的字符数 char
             this.s = s + new String(new char[m - s.length()]);
         }
-        assert(this.s.length() == m);
+        assert (this.s.length() == m);
     }
 
     @Override
@@ -39,13 +40,12 @@ public class StringDataBox extends DataBox {
 
     @Override
     public byte[] toBytes() {
-        return s.getBytes(Charset.forName("ascii"));
+        return s.getBytes(StandardCharsets.US_ASCII);
     }
 
     @Override
     public String toString() {
-        // TODO(hw0): replace with return s;
-        return "Welcome to CS186 (original string: " + s + ")";
+        return s;
     }
 
     @Override
@@ -69,7 +69,7 @@ public class StringDataBox extends DataBox {
     public int compareTo(DataBox d) {
         if (!(d instanceof StringDataBox)) {
             String err = String.format("Invalid comparison between %s and %s.",
-                                       toString(), d.toString());
+                    toString(), d.toString());
             throw new DataBoxException(err);
         }
         StringDataBox s = (StringDataBox) d;

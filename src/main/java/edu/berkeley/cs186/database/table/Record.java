@@ -8,6 +8,11 @@ import edu.berkeley.cs186.database.common.Buffer;
 import edu.berkeley.cs186.database.databox.DataBox;
 import edu.berkeley.cs186.database.databox.Type;
 
+/**
+ *  这里是代表一个表中的一条记录，一条记录有一些字段，这些字段都是拿DataBox来封装的
+ *      DataBox 只包含实际的值 value ，但是每一种 DataBox 都会有实际对应的类型 tyoe
+ */
+
 /** A Record is just list of DataBoxes. */
 public class Record {
     private List<DataBox> values;

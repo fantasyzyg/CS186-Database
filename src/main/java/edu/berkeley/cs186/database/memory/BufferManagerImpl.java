@@ -13,7 +13,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
 
 /**
- * Implementation of a buffer manager, with configurable page replacement policies.
+ * Implementation of a buffer manager, with configurable page replacement policies.        buffer manager 的实现，并且配置了page的替换策略
  * Data is stored in page-sized byte arrays, and returned in a Frame object specific
  * to the page loaded (evicting and loading a new page into the frame will result in
  * a new Frame object, with the same underlying byte array), with old Frame objects
@@ -56,7 +56,7 @@ public class BufferManagerImpl implements BufferManager {
         private int index;
         private long pageNum;
         private boolean dirty;
-        private ReentrantLock frameLock;
+        private ReentrantLock frameLock;    // 可重入锁
         private boolean logPage;
 
         Frame(byte[] contents, int nextFree, boolean logPage) {
@@ -116,7 +116,7 @@ public class BufferManagerImpl implements BufferManager {
         }
 
         /**
-         * Invalidates the frame, flushing it if necessary.
+         * Invalidates the frame, flushing it if necessary.       释放page和使page无效是两个不同的意义
          */
         private void invalidate() {
             if (this.isValid()) {
@@ -163,10 +163,10 @@ public class BufferManagerImpl implements BufferManager {
             this.frameLock.lock();
             super.pin();
             try {
-                if (!this.isValid()) {
+                if (!this.isValid()) {        // 如果一个 page 不是有效的，那么就不可以直接flush到磁盘
                     return;
                 }
-                if (!this.dirty) {
+                if (!this.dirty) {            // 如果不是 dirty 的话，不需要直接flush到磁盘
                     return;
                 }
                 if (!this.logPage) {
@@ -183,9 +183,10 @@ public class BufferManagerImpl implements BufferManager {
 
         /**
          * Read from the buffer frame.
+         *
          * @param position position in buffer frame to start reading
-         * @param num number of bytes to read
-         * @param buf output buffer
+         * @param num      number of bytes to read
+         * @param buf      output buffer
          */
         @Override
         void readBytes(short position, short num, byte[] buf) {
@@ -203,9 +204,10 @@ public class BufferManagerImpl implements BufferManager {
 
         /**
          * Write to the buffer frame, and mark frame as dirtied.
+         *
          * @param position position in buffer frame to start writing
-         * @param num number of bytes to write
-         * @param buf input buffer
+         * @param num      number of bytes to write
+         * @param buf      input buffer
          */
         @Override
         void writeBytes(short position, short num, byte[] buf) {
@@ -224,7 +226,7 @@ public class BufferManagerImpl implements BufferManager {
                         byte[] before = Arrays.copyOfRange(contents, start + offset, start + offset + len);
                         byte[] after = Arrays.copyOfRange(buf, start, start + len);
                         long pageLSN = recoveryManager.logPageWrite(transaction.getTransNum(), pageNum, position, before,
-                                       after);
+                                after);
                         this.setPageLSN(pageLSN);
                     }
                 }
@@ -330,12 +332,13 @@ public class BufferManagerImpl implements BufferManager {
      * Creates a new buffer manager.
      *
      * @param diskSpaceManager the underlying disk space manager
-     * @param bufferSize size of buffer (in pages)
-     * @param evictionPolicy eviction policy to use
+     * @param bufferSize       size of buffer (in pages)
+     * @param evictionPolicy   eviction policy to use
      */
     public BufferManagerImpl(DiskSpaceManager diskSpaceManager, RecoveryManager recoveryManager,
                              int bufferSize, EvictionPolicy evictionPolicy) {
         this.frames = new Frame[bufferSize];
+        // 创建 bufferSize 个内存page
         for (int i = 0; i < bufferSize; ++i) {
             this.frames[i] = new Frame(new byte[DiskSpaceManager.PAGE_SIZE], i + 1, false);
         }
@@ -382,7 +385,7 @@ public class BufferManagerImpl implements BufferManager {
                 throw new PageException("page " + pageNum + " not allocated");
             }
             if (this.pageToFrame.containsKey(pageNum)) {
-                newFrame = this.frames[this.pageToFrame.get(pageNum)];
+                newFrame = this.frames[this.pageToFrame.get(pageNum)];    // 查找缓存
                 newFrame.pin();
                 return newFrame;
             }
@@ -429,7 +432,7 @@ public class BufferManagerImpl implements BufferManager {
 
     @Override
     public Page fetchPage(LockContext parentContext, long pageNum, boolean logPage) {
-        return this.frameToPage(parentContext, pageNum, this.fetchPageFrame(pageNum, logPage));
+        return this.frameToPage(parentContext, pageNum, this.fetchPageFrame(pageNum, logPage));          // fetchPageFrame 会从磁盘
     }
 
     @Override
@@ -504,13 +507,14 @@ public class BufferManagerImpl implements BufferManager {
         Frame frame = frames[i];
         frame.frameLock.lock();
         try {
-            if (frame.isValid() && !frame.isPinned()) {
+            if (frame.isValid() && !frame.isPinned()) {   // 有效的并且没有在被使用
                 this.pageToFrame.remove(frame.pageNum, frame.index);
                 evictionPolicy.cleanup(frame);
 
                 frames[i] = new Frame(frame.contents, this.firstFreeIndex, false);
                 this.firstFreeIndex = i;
 
+                // 原本的 frame 被释放了，frames[i] 指向新的frame对象
                 frame.invalidate();
             }
         } finally {
@@ -544,15 +548,19 @@ public class BufferManagerImpl implements BufferManager {
         return numIOs;
     }
 
+    /**
+     * BufferManager.flush and DiskSpaceManager.readPage will use this method.
+     */
     private void incrementIOs() {
         ++numIOs;
     }
 
     /**
      * Wraps a frame in a page object.
+     *
      * @param parentContext parent lock context of the page
-     * @param pageNum page number
-     * @param frame frame for the page
+     * @param pageNum       page number
+     * @param frame         frame for the page
      * @return page object
      */
     private Page frameToPage(LockContext parentContext, long pageNum, Frame frame) {
